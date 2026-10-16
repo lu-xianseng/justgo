@@ -1,0 +1,13 @@
+.venv
+__pycache__
+*.pyc
+.idea
+.vscode
+.pytest_cache
+user-data
+Pipfile.lock
+logs
+reports
+cache
+temp
+tmp

@@ -1,0 +1,19 @@
+.side-nav__brand {
+  background: url('logo.svg') no-repeat left center;
+  background-size: contain;
+  height: 40px;
+  padding-left: 50px;
+  line-height: 30px;
+  margin-left: 10px;
+  display: flex;
+  align-items: flex-end;
+}
+
+.side-nav__brand span {
+  display: none;
+}
+
+.side-nav__brand::after {
+  content: "深地领航";
+  font-size: 20px;
+}
