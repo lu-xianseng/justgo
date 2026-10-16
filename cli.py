@@ -113,13 +113,16 @@ def cmd_run(args) -> int:
         pythonpath = pythonpath + os.pathsep + env["PYTHONPATH"]
     env["PYTHONPATH"] = pythonpath
 
-    # 3. 组装 pytest 命令：插件由 CLI 注入，其余参数透传
+    # 3. 组装 pytest 命令：插件由 CLI 注入；禁用 pytest-playwright（浏览器由框架
+    #    自行通过 playwright 库管理，避免其 page/browser fixture 与框架冲突）
     cmd = [
         sys.executable,
         "-m",
         "pytest",
         "-p",
         "lets_go.plugin",
+        "-p",
+        "no:playwright",
     ] + args.pytest_args
 
     print(f"执行测试项目：{project_root}")

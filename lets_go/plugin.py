@@ -150,7 +150,7 @@ def pytest_runtest_makereport(item, call):
             allure.attach.file(
                 video_file,
                 name=f"Test Record",
-                attachment_type=allure.attachment_type.MP4,
+                attachment_type=record.attachment_type,
             )
             try:
                 os.remove(video_file)
@@ -184,6 +184,11 @@ def page():
         "no_viewport": True,
         "user_data_dir": temp_dir,
     }
+    if enable_record and record.backend == "playwright":
+        # Playwright 内置录屏：零依赖，产出 webm；视频目录独立于 user_data_dir
+        video_dir = tempfile.mkdtemp(prefix="playwright_video_")
+        page_setup["record_video_dir"] = video_dir
+        page_setup["record_video_size"] = {"width": 1280, "height": 720}
     if config.framework.browser_path:
         page_setup["executable_path"] = config.framework.browser_path
     browser = driver.chromium.launch_persistent_context(**page_setup)
@@ -194,5 +199,11 @@ def page():
     if enable_record:
         record.stop()
     browser.close()
+    if enable_record and record.backend == "playwright":
+        # 视频在浏览器上下文关闭后 finalize，需在 driver 停止前读取路径
+        try:
+            record.set_record_file(_page.video.path())
+        except Exception as e:
+            logger.error(f"获取录屏文件失败: {e}")
     driver.stop()
     shutil.rmtree(temp_dir, ignore_errors=True)
