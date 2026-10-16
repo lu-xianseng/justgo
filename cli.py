@@ -140,11 +140,82 @@ def cmd_run(args) -> int:
 
 
 # ---------------------------------------------------------------------------
-# lets-go install：框架依赖安装 / 检查
+# lets-go install：框架依赖安装 / 检查（pipenv 管理虚拟环境）
 # 组件：core（框架核心 Python 依赖）| legacy（旧测试项目历史依赖）|
 #       playwright（浏览器 + 录制编码器）| allure（报告工具）|
 #       ffmpeg（桌面录屏后端，可选）| all（全部，默认）
 # ---------------------------------------------------------------------------
+
+def _pipenv_venv_path() -> str | None:
+    """查询 pipenv 虚拟环境路径（未创建返回 None）"""
+    pipenv = shutil.which("pipenv")
+    if not pipenv:
+        return None
+    r = subprocess.run([pipenv, "--venv"], capture_output=True, text=True)
+    if r.returncode != 0:
+        return None
+    p = r.stdout.strip()
+    return p if p and os.path.isdir(p) else None
+
+
+def _is_venv() -> bool:
+    """是否已运行在虚拟环境中（pipenv venv 或普通 venv 都适用）"""
+    return getattr(sys, "base_prefix", sys.prefix) != sys.prefix
+
+
+def _ensure_pipenv_runtime(argv: list) -> None:
+    """引导到 pipenv 环境：
+    - 已运行在虚拟环境（含 pipenv venv）或显式跳过（LETSGO_SKIP_PIPENV）时直接继续；
+    - 否则通过 `pipenv run python cli.py <argv>` 重新执行，保证依赖与 pytest
+      都落在 pipenv 虚拟环境中（sys.executable = venv python）。
+    """
+    if _is_venv() or os.environ.get("LETSGO_SKIP_PIPENV"):
+        return
+    if any(a in ("-h", "--help") for a in argv):
+        return
+    if not os.path.exists(os.path.join(FRAMEWORK_ROOT, "Pipfile")):
+        return
+    pipenv = shutil.which("pipenv")
+    if not pipenv:
+        if argv and argv[0] == "install":
+            print("未检测到 pipenv，自动安装（python -m pip install pipenv）...")
+            rc = subprocess.call([sys.executable, "-m", "pip", "install", "-U", "pipenv"])
+            if rc != 0:
+                raise SystemExit("pipenv 安装失败，请手动执行：python -m pip install pipenv")
+            pipenv = shutil.which("pipenv")
+        else:
+            raise SystemExit(
+                "lets-go 使用 pipenv 管理虚拟环境，但未检测到 pipenv。\n"
+                "请先安装：python -m pip install pipenv"
+            )
+    if not _pipenv_venv_path():
+        if argv and argv[0] == "install":
+            print("首次使用：创建 pipenv 虚拟环境（使用当前 Python）...")
+            rc = subprocess.call([pipenv, "--python", "3"])
+            if rc != 0:
+                raise SystemExit("pipenv 虚拟环境创建失败，请检查 Python 环境")
+        else:
+            raise SystemExit(
+                "尚未创建 pipenv 虚拟环境，请先运行：lets-go install"
+            )
+    # 重新进入 pipenv 环境执行（pipenv run 会设置 PIPENV_ACTIVE=1，不会再次引导）
+    print("进入 pipenv 虚拟环境执行...")
+    cmd = [pipenv, "run", "python", os.path.abspath(__file__)] + argv
+    sys.exit(subprocess.call(cmd))
+
+
+def _pipenv_install(packages: list | None, title: str) -> int:
+    """pipenv install 安装依赖：packages 为空时按 Pipfile 全量安装"""
+    pipenv = shutil.which("pipenv")
+    if not pipenv:
+        raise SystemExit("未检测到 pipenv，请先执行：python -m pip install pipenv")
+    cmd = [pipenv, "install", "--skip-lock"]
+    if packages:
+        cmd += packages
+    print(f"==> {title}")
+    print(f"    {' '.join(cmd)}")
+    return subprocess.call(cmd)
+
 
 def _parse_pyproject_deps() -> tuple:
     """从 pyproject.toml 解析依赖清单，返回 (core, legacy) 两个列表"""
@@ -161,25 +232,19 @@ def _parse_pyproject_deps() -> tuple:
     return core, legacy
 
 
-def _pip_install(deps: list, title: str) -> int:
-    """用当前 Python 环境执行 pip 安装"""
-    if not deps:
-        print(f"{title}：无待安装依赖")
-        return 0
-    cmd = [sys.executable, "-m", "pip", "install", "-U"] + deps
-    print(f"==> {title}")
-    print(f"    {' '.join(cmd)}")
-    return subprocess.call(cmd)
-
-
 def _install_core() -> int:
     core, _ = _parse_pyproject_deps()
-    return _pip_install(core, "安装框架核心 Python 依赖")
+    return _pipenv_install(core, "安装框架核心 Python 依赖（pipenv）")
 
 
 def _install_legacy() -> int:
     _, legacy = _parse_pyproject_deps()
-    return _pip_install(legacy, "安装旧测试项目历史依赖（jsonpath/redis/pycryptodome）")
+    return _pipenv_install(legacy, "安装旧测试项目历史依赖 jsonpath/redis/pycryptodome（pipenv）")
+
+
+def _install_all_py() -> int:
+    """按 Pipfile 全量安装（覆盖 core + legacy 全部 Python 依赖）"""
+    return _pipenv_install(None, "安装全部 Python 依赖（按 Pipfile）")
 
 
 def _install_playwright() -> int:
@@ -253,8 +318,7 @@ def cmd_install(args) -> int:
     comp = args.component or "all"
     steps = {
         "all": [
-            ("core", _install_core),
-            ("legacy", _install_legacy),
+            ("all", _install_all_py),
             ("playwright", _install_playwright),
             ("allure", _install_allure),
             ("ffmpeg", _install_ffmpeg),
@@ -305,7 +369,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_run.set_defaults(func=cmd_run)
 
-    p_install = sub.add_parser("install", help="安装/检查框架依赖")
+    p_install = sub.add_parser("install", help="安装/检查框架依赖（pipenv 管理虚拟环境）")
     p_install.add_argument(
         "component",
         nargs="?",
@@ -344,6 +408,8 @@ def _extract_output(argv: list) -> tuple:
 
 def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    # 引导到 pipenv 虚拟环境（保证依赖与 pytest 在同一环境）
+    _ensure_pipenv_runtime(argv)
     pre_output = None
     if argv and argv[0] == "run":
         # 先提取 --output（run 专属选项），避免与透传参数混在一起

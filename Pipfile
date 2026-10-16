@@ -3,23 +3,26 @@ url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 verify_ssl = true
 name = "pip_conf_index_global"
 
+[[source]]
+url = "https://mirrors.huaweicloud.com/repository/pypi/simple/"
+verify_ssl = true
+name = "mirrorshuaweicloud"
+
 [packages]
-pytest = ">=8.3.4"
 redis = ">=5.2.1"
-allure-python-commons = ">=2.13.5"
-allure-pytest = ">=2.13.5"
-loguru = ">=0.7.3"
 pycryptodome = "*"
-faker = "*"
 jsonpath = "*"
-pytest-rerunfailures = "*"
-requests = "*"
-playwright = "*"
 
 # 注：pytest-playwright 已从框架移除（浏览器由框架经 playwright 库自行管理）
+pytest = {version = ">=8.3.4", index = "mirrorshuaweicloud"}
+pytest-rerunfailures = {version = "*", index = "mirrorshuaweicloud"}
+allure-python-commons = {version = ">=2.13.5", index = "mirrorshuaweicloud"}
+allure-pytest = {version = ">=2.13.5", index = "mirrorshuaweicloud"}
+loguru = {version = ">=0.7.3", index = "mirrorshuaweicloud"}
+faker = {version = "*", index = "mirrorshuaweicloud"}
+requests = {version = "*", index = "mirrorshuaweicloud"}
+playwright = {version = "*", index = "mirrorshuaweicloud"}
 
 [dev-packages]
 
-[requires]
-python_version = "3.10"
-python_full_version = "3.10.10"
+# 注：不写死 python_version，虚拟环境使用创建时的 Python（lets-go install 自动创建）

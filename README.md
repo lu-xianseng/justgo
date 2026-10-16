@@ -26,20 +26,16 @@ lets-go/
 
 ## 安装
 
+### 环境管理（pipenv 自动引导）
 
+lets-go 使用 **pipenv 管理虚拟环境**，无需手动建 venv：
 
-```
-# 方式一：pipenv（推荐，与原项目一致）
-cd D:\ProjectCode\lets-go
-pipenv install
-playwright install
-
-# 方式二：pip 安装（获得全局 lets-go 命令）
-pip install -e D:\ProjectCode\lets-go
-
-# 方式三：不安装，直接用启动脚本（把 lets-go 目录加入 PATH）
-set PATH=D:\ProjectCode\lets-go;%PATH%
-```
+- 首次运行 `lets-go install`：自动检测 pipenv（缺失则自动 `pip install pipenv`）→
+  创建/复用 pipenv 虚拟环境 → 安装依赖；
+- `lets-go run` / `lets-go list` 等命令：自动通过 `pipenv run` 进入虚拟环境执行，
+  测试与框架的依赖始终在同一环境；
+- 若你已在某个虚拟环境中运行（如自己创建的 venv），不会重复引导；
+- 想跳过 pipenv 管理（如 CI 已自行准备环境）：设置环境变量 `LETSGO_SKIP_PIPENV=1`。
 
 ### 依赖安装命令
 
@@ -59,8 +55,8 @@ lets-go install ffmpeg       # 系统 ffmpeg（仅桌面录屏后端 record_back
 
 说明：
 
-- `core` 依赖清单以 `pyproject.toml` 的 `[project] dependencies` 为唯一来源，`legacy` 来自
-  `[project.optional-dependencies] legacy`；
+- Python 依赖统一由 pipenv 安装到虚拟环境：`lets-go install`（全部）按 `Pipfile` 全量安装；
+  `install core` / `install legacy` 按 `pyproject.toml` 的依赖清单增量安装（清单与 Pipfile 一致）；
 - 浏览器与框架 playwright 库版本自动匹配，无需手动对齐；
 - 不装 allure/ffmpeg 不影响用例执行与 allure 原始结果（录屏 webm 照常产出），仅影响
   HTML 报告生成与桌面录屏。
