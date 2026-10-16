@@ -41,6 +41,30 @@ pip install -e D:\ProjectCode\lets-go
 set PATH=D:\ProjectCode\lets-go;%PATH%
 ```
 
+### 依赖安装命令
+
+框架提供 `lets-go install` 一键安装/检查运行依赖（发布下载后首选）：
+
+```
+# 一键安装全部依赖（推荐）
+lets-go install
+
+# 或分组件安装
+lets-go install core         # 框架核心 Python 依赖（pytest/allure-pytest/playwright 等）
+lets-go install legacy       # 旧测试项目历史依赖（jsonpath/redis/selenium/pycryptodome，测试代码直接使用）
+lets-go install playwright   # Playwright 浏览器 chromium + 录制编码器 ffmpeg（webm 录屏必需）
+lets-go install allure       # 检查报告工具：Java + allure CLI（生成 HTML 报告）
+lets-go install ffmpeg       # 系统 ffmpeg（仅桌面录屏后端 record_backend=ffmpeg 需要，可选）
+```
+
+说明：
+
+- `core` 依赖清单以 `pyproject.toml` 的 `[project] dependencies` 为唯一来源，`legacy` 来自
+  `[project.optional-dependencies] legacy`；
+- 浏览器与框架 playwright 库版本自动匹配，无需手动对齐；
+- 不装 allure/ffmpeg 不影响用例执行与 allure 原始结果（录屏 webm 照常产出），仅影响
+  HTML 报告生成与桌面录屏。
+
 ## 使用
 
 ### 注册测试项目

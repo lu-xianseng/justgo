@@ -12,10 +12,12 @@ loguru = ">=0.7.3"
 pycryptodome = "*"
 faker = "*"
 jsonpath = "*"
-pytest-playwright = "*"
 pytest-rerunfailures = "*"
 requests = "*"
 selenium = "*"
+playwright = "*"
+
+# 注：pytest-playwright 已从框架移除（浏览器由框架经 playwright 库自行管理）
 
 [dev-packages]
 

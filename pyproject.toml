@@ -9,17 +9,22 @@ description = "Web 自动化测试框架：以命令方式指定测试项目执�
 requires-python = ">=3.10"
 dependencies = [
     "pytest>=8.3.4",
-    "redis>=5.2.1",
+    "pytest-rerunfailures",
     "allure-python-commons>=2.13.5",
     "allure-pytest>=2.13.5",
     "loguru>=0.7.3",
-    "pycryptodome",
     "faker",
-    "jsonpath",
-    "pytest-playwright",
-    "pytest-rerunfailures",
     "requests",
+    "playwright",
+]
+
+# 旧测试项目的历史依赖（测试代码直接 import，非框架必需）：lets-go install legacy 安装
+[project.optional-dependencies]
+legacy = [
+    "jsonpath",
+    "redis",
     "selenium",
+    "pycryptodome",
 ]
 
 [project.scripts]

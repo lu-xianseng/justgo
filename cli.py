@@ -20,6 +20,8 @@ run 内部机制：
 import argparse
 import json
 import os
+import re
+import shutil
 import subprocess
 import sys
 
@@ -137,6 +139,139 @@ def cmd_run(args) -> int:
     return result.returncode
 
 
+# ---------------------------------------------------------------------------
+# lets-go install：框架依赖安装 / 检查
+# 组件：core（框架核心 Python 依赖）| legacy（旧测试项目历史依赖）|
+#       playwright（浏览器 + 录制编码器）| allure（报告工具）|
+#       ffmpeg（桌面录屏后端，可选）| all（全部，默认）
+# ---------------------------------------------------------------------------
+
+def _parse_pyproject_deps() -> tuple:
+    """从 pyproject.toml 解析依赖清单，返回 (core, legacy) 两个列表"""
+    pyproject = os.path.join(FRAMEWORK_ROOT, "pyproject.toml")
+    with open(pyproject, encoding="utf-8") as f:
+        text = f.read()
+    core, legacy = [], []
+    m = re.search(r"^dependencies\s*=\s*\[(.*?)\]", text, re.M | re.S)
+    if m:
+        core = [x.strip().strip("\"'") for x in m.group(1).split(",") if x.strip()]
+    m = re.search(r"^legacy\s*=\s*\[(.*?)\]", text, re.M | re.S)
+    if m:
+        legacy = [x.strip().strip("\"'") for x in m.group(1).split(",") if x.strip()]
+    return core, legacy
+
+
+def _pip_install(deps: list, title: str) -> int:
+    """用当前 Python 环境执行 pip 安装"""
+    if not deps:
+        print(f"{title}：无待安装依赖")
+        return 0
+    cmd = [sys.executable, "-m", "pip", "install", "-U"] + deps
+    print(f"==> {title}")
+    print(f"    {' '.join(cmd)}")
+    return subprocess.call(cmd)
+
+
+def _install_core() -> int:
+    core, _ = _parse_pyproject_deps()
+    return _pip_install(core, "安装框架核心 Python 依赖")
+
+
+def _install_legacy() -> int:
+    _, legacy = _parse_pyproject_deps()
+    return _pip_install(legacy, "安装旧测试项目历史依赖（jsonpath/redis/selenium/pycryptodome）")
+
+
+def _install_playwright() -> int:
+    """安装 Playwright 浏览器与录制编码器（webm 录屏依赖）"""
+    print("==> 安装 Playwright 浏览器与录制编码器")
+    rc = 0
+    for target, desc in (
+        ("chromium", "Chromium 浏览器"),
+        ("ffmpeg", "录制编码器 ffmpeg（webm 视频必需）"),
+    ):
+        cmd = [sys.executable, "-m", "playwright", "install", target]
+        print(f"    {' '.join(cmd)}")
+        r = subprocess.call(cmd)
+        if r != 0:
+            print(f"    [失败] {desc} 安装未完成（退出码 {r}），可稍后重试本命令")
+            rc = r
+    if rc == 0:
+        print("    已安装到 %LOCALAPPDATA%\\ms-playwright；版本与框架 playwright 库自动匹配")
+    return rc
+
+
+def _install_allure() -> int:
+    """检查/指引 allure 报告工具（生成 HTML 报告需要 Java + allure CLI）"""
+    print("==> 检查 allure 报告工具")
+    ok = True
+    java = shutil.which("java")
+    if not java:
+        ok = False
+        print("  [缺失] Java 运行时（allure 生成 HTML 报告必需）")
+        print("    安装：winget install EclipseAdoptium.Temurin.17.JDK")
+        print("    或手动下载 https://adoptium.net/ 并确保 java 在 PATH")
+    else:
+        print(f"  [OK] Java：{java}")
+    allure_bat = os.path.join(FRAMEWORK_ROOT, "tools", "allure", "bin", "allure.bat")
+    if not os.path.exists(allure_bat):
+        ok = False
+        print(f"  [缺失] allure CLI：{allure_bat}")
+        print("    下载 allure-commandline 并解压到 tools/allure：")
+        print("    https://github.com/allure-framework/allure2/releases （allure-commandline-*.zip）")
+    else:
+        print(f"  [OK] allure CLI：{allure_bat}")
+    if ok:
+        print("  allure 报告工具已就绪")
+    else:
+        print("  按上方指引补装后即可生成 HTML 报告；不装不影响用例执行与 allure 原始结果")
+    return 0 if ok else 1
+
+
+def _install_ffmpeg() -> int:
+    """检查/安装系统 ffmpeg（仅 record_backend=ffmpeg 桌面录屏后端需要）"""
+    print("==> 检查系统 ffmpeg（桌面录屏后端使用；Playwright 录制无需）")
+    exe = shutil.which("ffmpeg")
+    if exe:
+        print(f"  [OK] ffmpeg：{exe}")
+        return 0
+    winget = shutil.which("winget")
+    if winget:
+        cmd = [
+            "winget", "install", "--id", "Gyan.FFmpeg", "-e",
+            "--accept-source-agreements", "--accept-package-agreements",
+        ]
+        print("  未检测到 ffmpeg，尝试 winget 安装：")
+        print(f"    {' '.join(cmd)}")
+        return subprocess.call(cmd)
+    print("  未检测到 ffmpeg 且系统无 winget，请手动安装：")
+    print("    下载 https://www.gyan.dev/ffmpeg/builds/ 的 release 版 zip，解压后把 bin 目录加入 PATH")
+    return 1
+
+
+def cmd_install(args) -> int:
+    comp = args.component or "all"
+    steps = {
+        "all": [
+            ("core", _install_core),
+            ("legacy", _install_legacy),
+            ("playwright", _install_playwright),
+            ("allure", _install_allure),
+            ("ffmpeg", _install_ffmpeg),
+        ],
+        "core": [("core", _install_core)],
+        "legacy": [("legacy", _install_legacy)],
+        "playwright": [("playwright", _install_playwright)],
+        "allure": [("allure", _install_allure)],
+        "ffmpeg": [("ffmpeg", _install_ffmpeg)],
+    }
+    for name, fn in steps[comp]:
+        print(f"\n---------- 组件：{name} ----------")
+        fn()
+    print("\n安装检查完成。浏览器安装后即可运行：lets-go run <项目>")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="lets-go",
@@ -169,6 +304,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="透传给 pytest 的参数，如 --tag \"smoke and L1\" --collect-only",
     )
     p_run.set_defaults(func=cmd_run)
+
+    p_install = sub.add_parser("install", help="安装/检查框架依赖")
+    p_install.add_argument(
+        "component",
+        nargs="?",
+        choices=["core", "legacy", "playwright", "allure", "ffmpeg", "all"],
+        default="all",
+        help="安装组件：core(框架核心Python依赖)/legacy(旧测试项目历史依赖)/"
+        "playwright(浏览器+录制编码器)/allure(报告工具)/ffmpeg(桌面录屏，可选)/all(全部，默认)",
+    )
+    p_install.set_defaults(func=cmd_install)
 
     return parser
 
