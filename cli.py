@@ -179,7 +179,7 @@ def _install_core() -> int:
 
 def _install_legacy() -> int:
     _, legacy = _parse_pyproject_deps()
-    return _pip_install(legacy, "安装旧测试项目历史依赖（jsonpath/redis/selenium/pycryptodome）")
+    return _pip_install(legacy, "安装旧测试项目历史依赖（jsonpath/redis/pycryptodome）")
 
 
 def _install_playwright() -> int:

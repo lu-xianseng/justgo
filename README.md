@@ -51,7 +51,7 @@ lets-go install
 
 # 或分组件安装
 lets-go install core         # 框架核心 Python 依赖（pytest/allure-pytest/playwright 等）
-lets-go install legacy       # 旧测试项目历史依赖（jsonpath/redis/selenium/pycryptodome，测试代码直接使用）
+lets-go install legacy       # 旧测试项目历史依赖（jsonpath/redis/pycryptodome，测试代码直接使用）
 lets-go install playwright   # Playwright 浏览器 chromium + 录制编码器 ffmpeg（webm 录屏必需）
 lets-go install allure       # 检查报告工具：Java + allure CLI（生成 HTML 报告）
 lets-go install ffmpeg       # 系统 ffmpeg（仅桌面录屏后端 record_backend=ffmpeg 需要，可选）

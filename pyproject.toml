@@ -23,7 +23,6 @@ dependencies = [
 legacy = [
     "jsonpath",
     "redis",
-    "selenium",
     "pycryptodome",
 ]
 
