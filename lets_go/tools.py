@@ -53,13 +53,16 @@ class GenerateReport:
     @staticmethod
     def set_report_env():
         allure_env = {
-            "OperatingEnvironment": config.project.test_base_url,
             "PythonVersion": platform.python_version(),
             "Platform": platform.platform(),
             "PytestVersion": pytest.__version__,
             "PlaywrightVersion": version("playwright"),
             "RequestsVersion": version("requests"),
         }
+        # 被测系统地址属于测试项目，由测试项目通过环境变量注入，未配置时省略
+        test_base_url = os.environ.get("LETSGO_TEST_BASE_URL")
+        if test_base_url:
+            allure_env["OperatingEnvironment"] = test_base_url
         if not os.path.exists(TMP_REPORT_PATH):
             os.makedirs(TMP_REPORT_PATH, exist_ok=True)
         allure_env_file = os.path.join(TMP_REPORT_PATH, "environment.properties")
@@ -83,11 +86,14 @@ class GenerateReport:
     def add_mark(self, item, item_config, tags):
         level = tags.get("用例级别", "").upper()
         item.add_marker(allure.severity(self.LEVEL_MAP[level]))
-        item.add_marker(
-            allure.testcase(
-                f"{config.project.test_case_base_url}/index.php?m=testcase&f=view&caseID={tags.get('用例ID')}"
+        # 禅道用例地址属于测试项目，由测试项目通过环境变量注入，未配置时跳过用例链接
+        test_case_base_url = os.environ.get("LETSGO_TEST_CASE_BASE_URL")
+        if test_case_base_url:
+            item.add_marker(
+                allure.testcase(
+                    f"{test_case_base_url}/index.php?m=testcase&f=view&caseID={tags.get('用例ID')}"
+                )
             )
-        )
         item.add_marker(allure.epic(tags.get("测试分类")))
         item.add_marker(allure.feature(tags.get("场景分类")))
         item.add_marker(allure.story(tags.get("场景描述")))
