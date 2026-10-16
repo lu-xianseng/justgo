@@ -89,11 +89,23 @@ FRAMEWORK_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # 测试项目根目录：运行时通过 CLI 指定（环境变量 LETSGO_PROJECT_ROOT 优先，否则取当前工作目录）
 ROOTDIR = os.environ.get("LETSGO_PROJECT_ROOT") or os.getcwd()
 
-# 运行产物（日志/报告/缓存）输出到测试项目根目录下，与拆分前行为一致
-TEMP_PATH = os.path.join(ROOTDIR, config.framework.cache_path, "temp")
-LOG_PATH = os.path.join(ROOTDIR, config.framework.log_path)
-TMP_REPORT_PATH = os.path.join(ROOTDIR, config.framework.cache_path, "report")
-REPORT_PATH = os.path.join(ROOTDIR, config.framework.report_path)
+# 产物输出根目录：默认跟随测试项目根；发布/CI 场景可通过 LETSGO_OUTPUT_ROOT 重定向，
+# 指定时按项目名分子目录输出（logs/reports/cache），多个项目互不串扰
+OUTPUT_ROOT = os.environ.get("LETSGO_OUTPUT_ROOT") or ROOTDIR
+
+# 项目标识名：用于 OUTPUT_ROOT 下的产物子目录（LETSGO_PROJECT_NAME 优先，否则取项目根目录名）
+PROJECT_NAME = os.environ.get("LETSGO_PROJECT_NAME") or os.path.basename(ROOTDIR)
+
+# 产物基准目录：未指定输出根时直接位于项目根（保持拆分前行为），指定时位于 输出根/项目名
+OUTPUT_BASE = (
+    os.path.join(OUTPUT_ROOT, PROJECT_NAME) if OUTPUT_ROOT != ROOTDIR else ROOTDIR
+)
+
+# 运行产物（日志/报告/缓存）
+TEMP_PATH = os.path.join(OUTPUT_BASE, config.framework.cache_path, "temp")
+LOG_PATH = os.path.join(OUTPUT_BASE, config.framework.log_path)
+TMP_REPORT_PATH = os.path.join(OUTPUT_BASE, config.framework.cache_path, "report")
+REPORT_PATH = os.path.join(OUTPUT_BASE, config.framework.report_path)
 
 # allure 工具随框架安装位置走：相对路径基于框架根解析，绝对路径直接使用
 _allure_path = config.framework.allure_path

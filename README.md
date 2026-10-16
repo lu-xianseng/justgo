@@ -87,7 +87,31 @@ lets-go run office_automation --collect-only
 
 4. 以测试项目根为工作目录调用 `pytest -p lets_go.plugin`，其余参数透传。
 
-测试项目的运行产物（logs /reports/cache）输出在**测试项目根目录**下，与拆分前行为一致。
+测试项目的运行产物（logs /reports/cache）默认输出在**测试项目根目录**下，与拆分前行为一致。
+
+### 产物输出目录（可选重定向）
+
+发布 / CI / 只读项目目录场景下，可将产物输出到指定目录：
+
+```bat
+:: 命令行参数：按 输出根\项目名 分子目录（多项目互不串扰）
+lets-go run office_automation --output D:\lets-go-output
+
+:: 或环境变量（适合 CI 统一归档）：效果同上
+set LETSGO_OUTPUT_ROOT=D:\lets-go-output
+lets-go run office_automation
+```
+
+产物落盘位置：
+
+| 产物 | 默认（项目根） | 指定输出根时 |
+| --- | --- | --- |
+| 运行日志 | `<项目根>\logs\` | `<输出根>\<项目名>\logs\` |
+| allure HTML 报告 | `<项目根>\reports\` | `<输出根>\<项目名>\reports\` |
+| allure 原始结果（含录屏 webm、截图） | `<项目根>\cache\report\` | `<输出根>\<项目名>\cache\report\` |
+| 录屏 / 临时文件 | `<项目根>\cache\temp\` | `<输出根>\<项目名>\cache\temp\` |
+
+项目名取注册名；按路径执行时取项目根目录名。tag CSV 等测试项目资源始终在项目根定位，不受输出重定向影响。
 
 ### 录屏
 

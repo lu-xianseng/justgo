@@ -101,13 +101,19 @@ def cmd_run(args) -> int:
     registry = load_registry()
     if args.target in registry:
         project_root = registry[args.target]
+        project_name = args.target
     else:
         project_root = args.target
+        project_name = os.path.basename(os.path.abspath(args.target))
     project_root = normalize_path(project_root)
 
-    # 2. 环境：注入测试项目根 + PYTHONPATH
+    # 2. 环境：注入测试项目根 + 输出根 + PYTHONPATH
     env = os.environ.copy()
     env["LETSGO_PROJECT_ROOT"] = project_root
+    env["LETSGO_PROJECT_NAME"] = project_name
+    if args.output:
+        env["LETSGO_OUTPUT_ROOT"] = os.path.abspath(os.path.expanduser(args.output))
+        print(f"运行产物输出目录：{env['LETSGO_OUTPUT_ROOT']}")
     pythonpath = FRAMEWORK_ROOT
     if env.get("PYTHONPATH"):
         pythonpath = pythonpath + os.pathsep + env["PYTHONPATH"]
@@ -153,6 +159,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_run = sub.add_parser("run", help="执行指定测试项目的自动化测试")
     p_run.add_argument("target", help="已注册的项目名称，或测试项目根目录路径")
     p_run.add_argument(
+        "--output",
+        metavar="目录",
+        help="运行产物（logs/reports/cache）输出根目录，默认输出到测试项目根下；指定时按 输出根/项目名 分子目录",
+    )
+    p_run.add_argument(
         "pytest_args",
         nargs=argparse.REMAINDER,
         help="透传给 pytest 的参数，如 --tag \"smoke and L1\" --collect-only",
@@ -162,9 +173,39 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _extract_output(argv: list) -> tuple:
+    """从 run 命令参数流中提取 --output（支持 --output X / --output=X），
+    避免被透传的 REMAINDER 参数吞掉。返回 (output 值, 剩余参数)"""
+    output = None
+    rest = []
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg == "--output":
+            if i + 1 >= len(argv):
+                raise SystemExit("错误：--output 缺少目录参数")
+            output = argv[i + 1]
+            i += 2
+            continue
+        if arg.startswith("--output="):
+            output = arg.split("=", 1)[1]
+            i += 1
+            continue
+        rest.append(arg)
+        i += 1
+    return output, rest
+
+
 def main(argv=None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    pre_output = None
+    if argv and argv[0] == "run":
+        # 先提取 --output（run 专属选项），避免与透传参数混在一起
+        pre_output, argv = _extract_output(argv)
     parser = build_parser()
     args = parser.parse_args(argv)
+    if pre_output is not None:
+        args.output = pre_output
     return args.func(args)
 
 
