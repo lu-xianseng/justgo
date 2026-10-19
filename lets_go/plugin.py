@@ -19,6 +19,7 @@ import inspect
 from lets_go import *
 from lets_go.parse_tag import ParseTag  # 显式使用新版 ParseTag（tag/ 目录限定 + 可选模式），
 # 覆盖 from lets_go import * 可能绑定到 tag_manage 旧版 ParseTag 的情况
+from lets_go.settings import config as letsgo_config  # pytest_configure 参数名遮蔽 config，用别名
 
 parse_tag = ParseTag()
 enable_record = False
@@ -117,6 +118,12 @@ def pytest_addoption(parser):
         choices=["yes", "no"],
         help="启用录屏功能 (yes/no)",
     )
+    # 录屏后端由测试项目在 pytest.ini 指定（默认 playwright 内置录屏；ffmpeg 需安装）
+    parser.addini(
+        "record_backend",
+        "录屏后端：playwright（内置，默认）或 ffmpeg（桌面录屏，需安装 ffmpeg）",
+        default="playwright",
+    )
 
 
 @pytest.hookimpl(trylast=True)
@@ -132,6 +139,8 @@ def pytest_configure(config):
     if config.getoption("--record") == "yes":
         global enable_record
         enable_record = True
+    # 录屏后端：项目 pytest.ini 的 record_backend 优先，写入运行时配置供 Record 实时读取
+    letsgo_config.run.record_backend = config.getini("record_backend")
 
 
 def pytest_runtest_call(item):

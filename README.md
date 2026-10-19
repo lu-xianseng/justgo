@@ -101,14 +101,19 @@ lets-go run shop --output D:\lets-go-output
 
 **被测系统地址**：改测试项目 `conftest.py` 里的 `LETSGO_TEST_BASE_URL`。有测试管理平台的话，可以再配 `LETSGO_TEST_CASE_BASE_URL` 让报告里带上用例链接。
 
-**框架运行配置**：在测试项目 `conftest.py` 里赋值，只对这次运行生效：
+**录屏后端**：在测试项目 `pytest.ini` 里指定：
+
+```ini
+record_backend = ffmpeg   # 桌面录屏（需安装 ffmpeg）；默认 playwright（内置录屏）
+```
+
+**其他运行配置**：在测试项目 `conftest.py` 里赋值，只对这次运行生效：
 
 ```python
 from lets_go import config
 
 config.run.slow_time = 1000          # 操作间隔毫秒
 config.run.show_browser = False      # 无头模式
-config.run.record_backend = "ffmpeg" # 桌面录屏（需安装 ffmpeg）；默认 playwright 内置录屏
 ```
 
 ## 用例写法
@@ -147,10 +152,8 @@ tag/module.csv:
 
 ## 录屏
 
-默认开着，用 Playwright 内置录屏，跑完自动把 webm 附到报告里。不想录屏，把 `pytest.ini` 里的 `--record=yes` 删掉。想用桌面录屏（需要安装 ffmpeg），在测试项目 `conftest.py` 里配：
+默认开着，用 Playwright 内置录屏，跑完自动把 webm 附到报告里。不想录屏，把 `pytest.ini` 里的 `--record=yes` 删掉。想用桌面录屏（需要安装 ffmpeg），在测试项目 `pytest.ini` 里改：
 
-```python
-from lets_go import config
-
-config.run.record_backend = "ffmpeg"
+```ini
+record_backend = ffmpeg
 ```

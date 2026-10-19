@@ -427,8 +427,8 @@ COMMON_TEMPLATES = {
 - LETSGO_TEST_CASE_BASE_URL：测试管理平台（如禅道）用例链接前缀，写入报告用例链接（可选）
 
 可选配置（在项目里改，不用动框架）：
-- 录屏后端：config.run.record_backend = "playwright"（内置录屏，默认）或 "ffmpeg"（桌面录屏，需 lets-go install ffmpeg）
-- 其他框架配置项同理：config.run.slow_time、config.run.show_browser 等
+- 录屏后端：在 pytest.ini 里指定 record_backend（playwright 内置 / ffmpeg 桌面录屏）
+- 其他框架配置项也可在此赋值：config.run.slow_time、config.run.show_browser 等
 """
 import os
 
@@ -439,8 +439,9 @@ os.environ.setdefault("LETSGO_TEST_BASE_URL", "")
 # TODO: 可选，例如 https://zentao.example.com/case-view-{id}.html
 os.environ.setdefault("LETSGO_TEST_CASE_BASE_URL", "")
 
-# 示例：改用桌面录屏（需安装 ffmpeg）
-# config.run.record_backend = "ffmpeg"
+# 示例：慢速操作等待毫秒数 / 无头模式（录屏后端见 pytest.ini）
+# config.run.slow_time = 1000
+# config.run.show_browser = False
 
 pytest_plugins = ["lets_go.plugin"]
 ''',
@@ -457,6 +458,8 @@ testpaths = cases
 python_files = test_*.py
 python_classes = Test*
 python_functions = test_*
+# 录屏后端：playwright（内置，默认）或 ffmpeg（桌面录屏，需 lets-go install ffmpeg）
+record_backend = playwright
 ''',
     "cases/base_case.py": '''#!/usr/bin/env python3
 # coding=utf-8
@@ -520,7 +523,7 @@ pytest
 | 被测系统地址 | conftest.py 的 LETSGO_TEST_BASE_URL | 必改，页面跳转基址 + 报告环境信息 |
 | 用例链接前缀 | conftest.py 的 LETSGO_TEST_CASE_BASE_URL | 可选 |
 | 录屏开关 | pytest.ini 的 --record | 默认开；删掉该行即关闭 |
-| 录屏后端 | conftest.py 里 config.run.record_backend | 默认 playwright（内置录屏）；改 ffmpeg 需安装 ffmpeg |
+| 录屏后端 | pytest.ini 的 record_backend | 默认 playwright（内置录屏）；改 ffmpeg 需安装 ffmpeg |
 | 慢速/是否显示浏览器 | conftest.py 里 config.run.xxx | 运行时覆盖，优先级高于框架配置文件 |
 
 ## 运行产物
