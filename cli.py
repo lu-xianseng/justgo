@@ -450,16 +450,18 @@ python_functions = test_*
 """首页搜索用例（PO 模式示例）。
 
 开发一个用例的步骤：
-1. 在 pages/<页面>/page.py 写页面对象：元素定位器 + 页面操作 + 返回业务结果；
+1. 在 pages/<页面>/page.py 写页面对象：元素定位器 + 页面操作 + 返回业务结果，
+   并在 pages/__init__.py 统一导出；
 2. 在 cases/<模块>/test_<模块>_<用例ID>.py 写用例：
    - 用例函数名：test_<模块>_<用例ID>，用例ID 与本文件对应的 tag CSV 里的 用例ID 一致；
+   - 从 pages 统一出口导入页面对象（from pages import HomePage）；
    - 通过框架的 page fixture 拿页面，实例化页面对象，调方法 + 断言；
-3. 需要 tag 管理时，在 tag/<模块>/<本文件同名>.csv 登记该用例（本示例已登记）；
+3. 需要 tag 管理时，在 tag/<模块>/<模块名>.csv 登记该用例（本示例已登记）；
 4. 运行：lets-go run <项目>（或直接在项目根敲 pytest）。
 """
 import allure
 
-from pages.home_page.page import HomePage
+from pages import HomePage
 
 
 @allure.feature("首页")
@@ -473,6 +475,20 @@ class TestHome:
         home.goto()
         home.search("手机")
         assert "手机" in home.get_search_result(), "搜索结果应包含搜索关键词"
+''',
+    "pages/__init__.py": '''#!/usr/bin/env python3
+# coding=utf-8
+"""页面对象统一出口（pages 包）。
+
+新增页面对象后，在这里集中导出，用例统一从 pages 导入，不直接 import 具体文件：
+
+    from pages import HomePage   # 而不是 from pages.home_page.page import HomePage
+
+好处：页面文件路径/类名调整时，只需要改这里，用例层无需改动。
+"""
+from pages.home_page.page import HomePage
+
+__all__ = ["HomePage"]
 ''',
     "pages/home_page/page.py": '''#!/usr/bin/env python3
 # coding=utf-8
@@ -536,6 +552,7 @@ class HomePage:
 │  └─ home/
 │     └─ test_home_1001.py
 ├─ pages/                 # 页面对象（PO 核心：每个页面一个类）
+│  ├─ __init__.py         # 统一出口：所有页面对象在此导出，用例从 pages 导入
 │  └─ home_page/
 │     └─ page.py
 └─ tag/                   # 用例标记（可选：tag 机制启用后支持 --tag 筛选）
@@ -565,12 +582,20 @@ class HomePage:
         return self.page.text_content(self._search_result)
 ```
 
+写完后在 `pages/__init__.py` 统一导出（新增页面也这样做）：
+
+```python
+from pages.home_page.page import HomePage
+
+__all__ = ["HomePage"]
+```
+
 ### 2. 写用例（cases/）
 用例只做三件事：**拿页面对象 → 调方法 → 断言**：
 
 ```python
 import allure
-from pages.home_page.page import HomePage
+from pages import HomePage   # 从统一出口导入，不直接 import 具体文件
 
 @allure.feature("首页")
 class TestHome:
