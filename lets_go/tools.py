@@ -35,10 +35,9 @@ class GenerateReport:
             ALLURE_PATH,
             "generate",
             TMP_REPORT_PATH,
-            "--lang",
-            "zh",
-            "--name",
-            "自动化测试报告",
+            # 注意：allure 2.24+ 已移除 generate 的 --lang/--name 选项（移入
+            # profile 配置文件），旧参数会被误当成结果目录。只保留通用选项
+            # -c(清理) -o(输出目录)，兼容所有 allure 2.x 版本。
             "-c",
             "-o",
             self.__report_path,

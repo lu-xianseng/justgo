@@ -72,9 +72,31 @@ lets-go install ffmpeg       # 系统 ffmpeg（仅桌面录屏后端 record_back
 
 ## 使用
 
+### 初始化测试项目（推荐新项目从这里开始）
+
+一键生成 PO 模式的项目骨架（含示例用例 / 页面对象 / tag 标记 / 开发指南），
+让使用者能照着示例理解怎么开发：
+
+```
+lets-go init SHOP-TEST
+```
+
+生成的目录结构：
+
+```
+SHOP-TEST/
+├─ conftest.py            # 注入被测地址（LETSGO_TEST_BASE_URL），必改
+├─ pytest.ini             # 收集规则 / 默认录屏
+├─ README.md              # PO 模式开发指南（三步走：页面对象 → 用例 → tag）
+├─ cases/home/test_home_1001.py   # 用例示例
+├─ pages/home_page/page.py        # 页面对象示例
+└─ tag/home.csv                   # 用例标记（可选，一个模块目录一个 CSV）
+```
+
+> 注意：框架约定标记目录名为 `tag`（单数）；目录不存在时不启用 tag 机制，
+> 用例全部直接执行。生成后先改 `conftest.py` 里的被测地址，再 `lets-go add` 注册运行。
+
 ### 注册测试项目
-
-
 
 ```
 lets-go add office_automation D:\ProjectCode\web_auto_test

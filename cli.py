@@ -7,6 +7,7 @@ lets-go 命令行入口。
 
 用法：
     lets-go add <名称> <测试项目路径>    注册一个测试项目
+    lets-go init <项目目录>             初始化一个 PO 模式的测试项目骨架
     lets-go list                         列出已注册项目
     lets-go remove <名称>                取消注册
     lets-go run <名称|路径> [pytest参数] 执行指定测试项目的自动化测试
@@ -407,6 +408,264 @@ def cmd_install(args) -> int:
     return 0
 
 
+# ---------------------------------------------------------------------------
+# lets-go init：初始化一个 PO 模式的测试项目骨架
+# 生成：cases(用例) / pages(页面对象) / tag(标记，可选) + conftest/pytest.ini/README
+# 模板文件全部内联于此，保证打包后 init 命令零依赖可用。
+# ---------------------------------------------------------------------------
+INIT_TEMPLATES = {
+    "conftest.py": '''#!/usr/bin/env python3
+# coding=utf-8
+"""测试项目根 conftest：让 lets-go 框架插件生效，并向框架注入本项目配置。
+
+- pytest_plugins：声明框架插件（lets-go run 会自行注入，此条兼容直接在项目里敲 pytest 的场景）
+- LETSGO_TEST_BASE_URL：被测系统地址，框架写入 allure 报告环境信息，页面对象跳转时也读取它
+- LETSGO_TEST_CASE_BASE_URL：测试管理平台（如禅道）用例链接前缀，写入报告的用例链接（可选）
+"""
+import os
+
+# TODO: 改成被测系统的实际地址（本机服务可用 http://127.0.0.1:端口）
+os.environ.setdefault("LETSGO_TEST_BASE_URL", "http://127.0.0.1:8000")
+# TODO: 可选，例如 https://zentao.example.com/case-view-{id}.html
+os.environ.setdefault("LETSGO_TEST_CASE_BASE_URL", "")
+
+pytest_plugins = ["lets_go.plugin"]
+''',
+    "pytest.ini": '''[pytest]
+addopts=
+    -s
+    --color=auto
+    --no-header
+    --import-mode=importlib
+    # 默认开启录屏（Playwright 内置，零依赖，产出 webm 自动附到报告）；不需要可删除本行
+    --record=yes
+console_output_style = count
+testpaths = cases
+python_files = test_*.py
+python_classes = Test*
+python_functions = test_*
+''',
+    "cases/home/test_home_1001.py": '''#!/usr/bin/env python3
+# coding=utf-8
+"""首页搜索用例（PO 模式示例）。
+
+开发一个用例的步骤：
+1. 在 pages/<页面>/page.py 写页面对象：元素定位器 + 页面操作 + 返回业务结果；
+2. 在 cases/<模块>/test_<模块>_<用例ID>.py 写用例：
+   - 用例函数名：test_<模块>_<用例ID>，用例ID 与本文件对应的 tag CSV 里的 用例ID 一致；
+   - 通过框架的 page fixture 拿页面，实例化页面对象，调方法 + 断言；
+3. 需要 tag 管理时，在 tag/<模块>/<本文件同名>.csv 登记该用例（本示例已登记）；
+4. 运行：lets-go run <项目>（或直接在项目根敲 pytest）。
+"""
+import allure
+
+from pages.home_page.page import HomePage
+
+
+@allure.feature("首页")
+@allure.story("搜索")
+class TestHome:
+
+    @allure.title("首页搜索功能验证")
+    def test_home_search_1001(self, page):
+        """首页搜索功能验证"""
+        home = HomePage(page)
+        home.goto()
+        home.search("手机")
+        assert "手机" in home.get_search_result(), "搜索结果应包含搜索关键词"
+''',
+    "pages/home_page/page.py": '''#!/usr/bin/env python3
+# coding=utf-8
+"""HomePage：首页页面对象（PO 模式示例）。
+
+PO（Page Object）模式的核心约定：
+1. 一个页面一个类，类名与页面语义对应（HomePage -> 首页）；
+2. 元素定位器集中写在类顶部，页面结构变化时只改这里；
+3. 页面能做的操作封装成方法（打开、搜索、取结果），返回业务结果给用例断言；
+4. 用例层只调用 Page 方法 + 断言，不出现定位器或浏览器细节。
+
+同步用例传入 playwright.sync_api 的 Page；异步用例传入 playwright.async_api
+的 Page（其中方法需 await）。本示例为同步写法，异步写法见框架 README。
+"""
+import os
+
+from playwright.sync_api import Page
+
+
+class HomePage:
+    """首页页面对象：封装首页的元素与操作。"""
+
+    def __init__(self, page: Page):
+        self.page = page
+
+    # ---- 元素定位器：集中维护，页面结构变了只改这里 ----
+    _search_input = 'input[placeholder*="搜索"]'
+    _search_button = 'button:has-text("搜索")'
+    _search_result = ".search-result"
+
+    # ---- 页面操作 ----
+    def goto(self, path: str = ""):
+        """打开首页。基址来自项目 conftest 注入的 LETSGO_TEST_BASE_URL。"""
+        base = os.environ.get("LETSGO_TEST_BASE_URL", "http://127.0.0.1:8000")
+        self.page.goto(f"{base}{path}")
+
+    def search(self, keyword: str):
+        """输入关键词并点击搜索，等待结果出现。"""
+        self.page.fill(self._search_input, keyword)
+        self.page.click(self._search_button)
+        self.page.wait_for_selector(self._search_result)
+
+    def get_search_result(self) -> str:
+        """返回搜索结果文本（业务结果，供用例断言）。"""
+        return self.page.text_content(self._search_result) or ""
+''',
+    "tag/home.csv": '''脚本ID,用例ID,用例级别,场景,跳过原因,废弃,其它
+1001,1001,L1,首页搜索,,,
+''',
+    "README.md": '''# {name} 自动化测试项目
+
+基于 lets-go 框架、遵循 **PO（Page Object）模式** 的 Web 自动化测试项目骨架。
+
+## 目录结构
+
+```
+{name}/
+├─ conftest.py            # 项目根配置：声明框架插件 + 注入被测地址（必改）
+├─ pytest.ini             # pytest 配置：收集规则 / 默认录屏
+├─ cases/                 # 测试用例（一个用例文件 = 一个页面/功能的一组用例）
+│  └─ home/
+│     └─ test_home_1001.py
+├─ pages/                 # 页面对象（PO 核心：每个页面一个类）
+│  └─ home_page/
+│     └─ page.py
+└─ tag/                   # 用例标记（可选：tag 机制启用后支持 --tag 筛选）
+   └─ home.csv            # 一个模块目录一个 CSV，登记该目录下所有用例
+```
+
+> 说明：框架约定标记目录名为 `tag`（单数），位于项目根；项目没有 `tag/` 目录时
+> 不启用 tag 机制，用例不校验、不筛选，全部直接执行。
+
+## 怎么开发自动化用例（PO 模式三步走）
+
+### 1. 写页面对象（pages/）
+一个页面一个类，封装三样东西：
+
+```python
+class HomePage:
+    # ① 元素定位器：集中维护，页面结构变了只改这里
+    _search_input = 'input[placeholder*="搜索"]'
+
+    # ② 页面操作：封装成方法
+    def search(self, keyword):
+        self.page.fill(self._search_input, keyword)
+        self.page.click(self._search_button)
+
+    # ③ 返回业务结果：供用例层断言
+    def get_search_result(self):
+        return self.page.text_content(self._search_result)
+```
+
+### 2. 写用例（cases/）
+用例只做三件事：**拿页面对象 → 调方法 → 断言**：
+
+```python
+import allure
+from pages.home_page.page import HomePage
+
+@allure.feature("首页")
+class TestHome:
+    def test_home_search_1001(self, page):
+        """首页搜索功能验证"""
+        home = HomePage(page)
+        home.goto()
+        home.search("手机")
+        assert "手机" in home.get_search_result(), "搜索结果应包含关键词"
+```
+
+约定：
+- 用例函数名 `test_<模块>_<用例ID>`，用例ID（如 1001）与 tag CSV 中的 用例ID 对应；
+- `page` 是框架提供的 fixture（Playwright 页面）：同步用例直接调用，
+  异步用例 `async def test_xxx(page)` 用 `await page.xxx()`，两种写法都支持。
+
+### 3. 登记 tag（可选）
+启用 tag 机制后，用例必须先在 `tag/` 中登记，否则运行会提示"缺少tag信息"。
+**一个模块目录对应一个 CSV**（文件名 = 模块目录名），登记该目录下所有用例：
+
+```
+tag/home.csv:
+脚本ID,用例ID,用例级别,场景,跳过原因,废弃,其它
+1001,1001,L1,首页搜索,,,
+```
+
+- 脚本ID 必须等于 用例ID（框架校验）；
+- 运行时可筛选：`lets-go run <项目> --tag "L1 and 首页"`；
+- 不想用 tag：删掉 `tag/` 目录即可，用例直接全部执行。
+
+## 运行
+
+```bash
+# 首次：注册项目（把 <名称> 换成你的项目名）
+lets-go add <名称> .
+
+# 执行全部用例
+lets-go run <名称>
+
+# 只收集不执行（快速验证骨架）
+lets-go run <名称> --collect-only
+
+# 带 tag 筛选
+lets-go run <名称> --tag "smoke and L1"
+```
+
+或直接在项目根敲 pytest（conftest 已声明框架插件）：
+
+```bash
+pytest
+```
+
+## 配置
+
+| 配置项 | 位置 | 说明 |
+| --- | --- | --- |
+| 被测系统地址 | conftest.py 的 LETSGO_TEST_BASE_URL | 必改，页面跳转基址 + 报告环境信息 |
+| 用例链接前缀 | conftest.py 的 LETSGO_TEST_CASE_BASE_URL | 可选 |
+| 录屏开关 | pytest.ini 的 --record | 默认开；删掉该行即关闭 |
+| 慢速/是否显示浏览器 | 框架 configs/config.ini 的 [run] 节 | 全局生效 |
+
+## 运行产物
+
+默认输出到项目根下：`logs/`（日志）、`reports/`（allure 报告）、`cache/`（临时/截图/录屏）。
+可重定向：`lets-go run <名称> --output D:\\产物目录`。
+
+## 依赖
+
+框架依赖由 lets-go 管理：`lets-go install`（core/playwright/allure/ffmpeg 可选）。
+测试项目自身的 Python 依赖（如 redis、pymysql）由项目自行安装到运行环境。
+''',
+}
+
+
+def cmd_init(args) -> int:
+    """初始化测试项目骨架：目标目录不存在则创建（区别于 add 要求目录已存在）"""
+    target = os.path.abspath(os.path.expanduser(args.target))
+    if os.path.exists(target) and os.listdir(target):
+        raise SystemExit(f"错误：目录已存在且非空，请选择新目录：{target}")
+    os.makedirs(target, exist_ok=True)
+    for rel, content in INIT_TEMPLATES.items():
+        path = os.path.join(target, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(content.replace("{name}", os.path.basename(target)))
+    print(f"已在 {target} 创建测试项目骨架：")
+    for rel in INIT_TEMPLATES:
+        print(f"  {os.path.join(target, rel)}")
+    print("\n下一步：")
+    print(f"  1. 编辑 {os.path.join(target, 'conftest.py')} 里的 LETSGO_TEST_BASE_URL 为被测系统实际地址")
+    print(f"  2. 注册并运行：lets-go add <名称> {target}")
+    print("     lets-go run <名称>")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="lets-go",
@@ -439,6 +698,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="透传给 pytest 的参数，如 --record=yes(录屏) --tag \"smoke and L1\" --collect-only",
     )
     p_run.set_defaults(func=cmd_run)
+
+    p_init = sub.add_parser(
+        "init", help="初始化一个 PO 模式的测试项目骨架（含示例用例/页面对象/tag）"
+    )
+    p_init.add_argument(
+        "target",
+        help="项目目录名或路径（不存在则创建），如：lets-go init SHOP-TEST",
+    )
+    p_init.set_defaults(func=cmd_init)
 
     p_install = sub.add_parser("install", help="安装/检查框架依赖（pipenv 管理虚拟环境）")
     p_install.add_argument(
