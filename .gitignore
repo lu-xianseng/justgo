@@ -1,15 +1,44 @@
-.venv
-__pycache__
-*.pyc
-.idea
-.vscode
-.pytest_cache
-user-data
-Pipfile.lock
-logs
-reports
-cache
-temp
-tmp
-dist
-*.egg-info
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ---- 虚拟环境 ----
+.venv/
+venv/
+env/
+ENV/
+
+# ---- 运行产物（日志/报告/录屏/临时，框架与测试项目通用）----
+logs/
+reports/
+cache/
+temp/
+tmp/
+allure-report/
+*.log
+
+# ---- IDE / 编辑器 ----
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ---- 系统文件 ----
+.DS_Store
+Thumbs.db
+
+# ---- 本地用户数据 ----
+user-data/
