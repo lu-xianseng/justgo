@@ -142,6 +142,34 @@ lets-go run office_automation
 
 项目名取注册名；按路径执行时取项目根目录名。tag CSV 等测试项目资源始终在项目根定位，不受输出重定向影响。
 
+### 框架配置（两种方式）
+
+框架配置集中在 `lets_go/configs/config.ini`（仅浏览器路径、目录、allure 路径、录屏后端等框架项；
+**测试项目相关配置不在此处**）。使用中有两种修改方式：
+
+**方式一：直接改 config.ini（持久生效）**
+
+```ini
+[run]
+slow_time = 1000
+show_browser = False
+```
+
+**方式二：测试项目运行时覆盖（推荐，尤其安装版）**
+
+在测试项目 `conftest.py` 顶部导入并赋值，优先级高于 config.ini，仅本次运行生效：
+
+```python
+from lets_go import config
+
+config.run.slow_time = 1000          # 慢速操作等待毫秒数
+config.run.show_browser = False      # 无头模式
+config.framework.browser_path = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+```
+
+支持任意配置项：`config.framework.*` / `config.run.*` 均可读可写；未赋值项仍读 config.ini。
+安装版（wheel）改不了 site-packages 里的配置文件时，用方式二即可。
+
 ### 录屏
 
 默认使用 **Playwright 内置录屏**（`record_backend = playwright`）：零额外依赖、无需安装

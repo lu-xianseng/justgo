@@ -11,7 +11,11 @@ import allure
 
 
 class SectionWrapper:
-    """封装配置文件中的单个节，提供属性式访问"""
+    """封装配置文件中的单个节，提供属性式访问与运行时覆盖
+
+    支持用户编程式设置：config.run.slow_time = 1000（写入缓存，运行时生效，
+    优先于 config.ini 文件值）。可在测试项目 conftest.py 顶部导入赋值。
+    """
 
     def __init__(self, section: ConfigParser.sections):
         """初始化节包装器并转换布尔值配置项"""
@@ -21,6 +25,13 @@ class SectionWrapper:
         # 预解析所有配置项
         for option in section:
             self._parse_and_cache(option)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        """支持用户覆盖配置：写入缓存（_section/_cache 等内部属性走默认逻辑）"""
+        if name.startswith("_"):
+            object.__setattr__(self, name, value)
+            return
+        self._cache[name] = value
 
     def _parse_and_cache(self, option: str) -> None:
         """解析配置值并缓存结果"""
