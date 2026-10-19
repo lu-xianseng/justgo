@@ -8,7 +8,7 @@ import csv
 from _pytest.nodes import Item
 from _pytest.python import Function
 from typing import Dict, List, Optional
-from lets_go.settings import ROOTDIR
+from just_go.settings import ROOTDIR
 
 
 class ParseTag:

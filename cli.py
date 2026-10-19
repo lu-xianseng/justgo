@@ -15,8 +15,8 @@ just-go 命令行入口。
 run 内部机制：
     1. 解析目标为已注册名称或直接路径，得到测试项目根目录；
     2. 设置环境变量 JUSTGO_PROJECT_ROOT 指向测试项目根（框架据此定位 tag/日志/报告）；
-    3. 注入 PYTHONPATH（含框架根），保证未安装时 lets_go 也可导入；
-    4. 以测试项目根为工作目录调用 `python -m pytest -p lets_go.plugin <参数>`。
+    3. 注入 PYTHONPATH（含框架根），保证未安装时 just_go 也可导入；
+    4. 以测试项目根为工作目录调用 `python -m pytest -p just_go.plugin <参数>`。
 """
 import argparse
 import json
@@ -26,30 +26,26 @@ import shutil
 import subprocess
 import sys
 
-# 保证任何目录下都能 import lets_go（框架根 = 本文件所在目录，即 just-go 项目根）
+# 保证任何目录下都能 import just_go（框架根 = 本文件所在目录，即 just-go 项目根）
 FRAMEWORK_ROOT = os.path.dirname(os.path.abspath(__file__))
 if FRAMEWORK_ROOT not in sys.path:
     sys.path.insert(0, FRAMEWORK_ROOT)
 
 REGISTRY_DIR = os.path.join(os.path.expanduser("~"), ".just-go")
 REGISTRY_FILE = os.path.join(REGISTRY_DIR, "projects.json")
-# 旧目录兼容：升级前注册的项目在 ~/.lets-go/projects.json，读取时一并加载
-LEGACY_REGISTRY_FILE = os.path.join(os.path.expanduser("~"), ".lets-go", "projects.json")
 
 
 def load_registry() -> dict:
-    """读取项目注册表（~/.just-go 优先，~/.lets-go 旧目录兼容，同名新目录覆盖）"""
-    data: dict = {}
-    for _f in (REGISTRY_FILE, LEGACY_REGISTRY_FILE):
-        if os.path.exists(_f):
-            try:
-                with open(_f, "r", encoding="utf-8") as fh:
-                    _loaded = json.load(fh)
-                if isinstance(_loaded, dict):
-                    data.update(_loaded)
-            except (json.JSONDecodeError, OSError):
-                pass
-    return data
+    """读取项目注册表"""
+    if os.path.exists(REGISTRY_FILE):
+        try:
+            with open(REGISTRY_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                return data
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {}
 
 
 def save_registry(data: dict) -> None:
@@ -133,7 +129,7 @@ def cmd_run(args) -> int:
         "-m",
         "pytest",
         "-p",
-        "lets_go.plugin",
+        "just_go.plugin",
         "-p",
         "no:playwright",
     ] + args.pytest_args
@@ -436,7 +432,7 @@ COMMON_TEMPLATES = {
 """
 import os
 
-from lets_go import config
+from just_go import config
 
 # TODO: 填写被测系统的实际地址，例如 http://192.168.1.10:8080
 os.environ.setdefault("JUSTGO_TEST_BASE_URL", "")
@@ -447,7 +443,7 @@ os.environ.setdefault("JUSTGO_TEST_CASE_BASE_URL", "")
 # config.run.slow_time = 1000
 # config.run.show_browser = False
 
-pytest_plugins = ["lets_go.plugin"]
+pytest_plugins = ["just_go.plugin"]
 ''',
     "pytest.ini": '''[pytest]
 addopts=

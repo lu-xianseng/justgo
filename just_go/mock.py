@@ -4,7 +4,7 @@
 # @Author   :luye
 import os
 from faker import Faker
-from lets_go.settings import ROOTDIR
+from just_go.settings import ROOTDIR
 
 
 class MockData:

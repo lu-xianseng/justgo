@@ -4,15 +4,15 @@
 # @Author   :luye
 import os.path
 
-from lets_go.browser_utils import *
-from lets_go.request_utils import *
-from lets_go.assertion import AssertCommon
-from lets_go.controller import CaseControl
-from lets_go.logger import *
-from lets_go.tag_manage import *
-from lets_go.tools import *
-from lets_go.settings import *
-from lets_go.mock import *
+from just_go.browser_utils import *
+from just_go.request_utils import *
+from just_go.assertion import AssertCommon
+from just_go.controller import CaseControl
+from just_go.logger import *
+from just_go.tag_manage import *
+from just_go.tools import *
+from just_go.settings import *
+from just_go.mock import *
 
 if os.path.exists(TMP_REPORT_PATH):
     shutil.rmtree(TMP_REPORT_PATH)

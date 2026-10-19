@@ -12,8 +12,8 @@ from typing import Optional
 import pytest
 import allure
 from importlib.metadata import version
-from lets_go.settings import TMP_REPORT_PATH, REPORT_PATH, ROOTDIR, ALLURE_PATH, config
-from lets_go.exceptions import SoftwareNotInstallError
+from just_go.settings import TMP_REPORT_PATH, REPORT_PATH, ROOTDIR, ALLURE_PATH, config
+from just_go.exceptions import SoftwareNotInstallError
 
 
 class GenerateReport:
@@ -59,8 +59,7 @@ class GenerateReport:
             "RequestsVersion": version("requests"),
         }
         # 被测系统地址属于测试项目，由测试项目通过环境变量注入，未配置时省略
-        # 旧名 LETSGO_TEST_BASE_URL 兼容读取
-        test_base_url = os.environ.get("JUSTGO_TEST_BASE_URL") or os.environ.get("LETSGO_TEST_BASE_URL")
+        test_base_url = os.environ.get("JUSTGO_TEST_BASE_URL")
         if test_base_url:
             allure_env["OperatingEnvironment"] = test_base_url
         if not os.path.exists(TMP_REPORT_PATH):
@@ -96,8 +95,7 @@ class GenerateReport:
         level = tags.get("用例级别", "").upper()
         item.add_marker(allure.severity(self.LEVEL_MAP[level]))
         # 禅道用例地址属于测试项目，由测试项目通过环境变量注入，未配置时跳过用例链接
-        # 旧名 LETSGO_TEST_CASE_BASE_URL 兼容读取
-        test_case_base_url = os.environ.get("JUSTGO_TEST_CASE_BASE_URL") or os.environ.get("LETSGO_TEST_CASE_BASE_URL")
+        test_case_base_url = os.environ.get("JUSTGO_TEST_CASE_BASE_URL")
         if test_case_base_url:
             item.add_marker(
                 allure.testcase(

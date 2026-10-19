@@ -3,7 +3,7 @@
 # @Time     :2025/2/27 14:28
 # @Author   :luye
 import re
-from lets_go.logger import logger
+from just_go.logger import logger
 
 
 class AssertCommon:

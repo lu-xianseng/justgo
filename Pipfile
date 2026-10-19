@@ -22,4 +22,4 @@ playwright = {version = "*", index = "mirrorshuaweicloud"}
 
 [dev-packages]
 
-# 注：不写死 python_version，虚拟环境使用创建时的 Python（lets-go install 自动创建）
+# 注：不写死 python_version，虚拟环境使用创建时的 Python（just-go install 自动创建）

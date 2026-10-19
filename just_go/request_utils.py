@@ -6,7 +6,7 @@ import requests
 from typing import Dict, Any, Optional, Union
 from requests import Response
 from requests.exceptions import RequestException
-from lets_go import logger
+from just_go import logger
 
 
 class Request:

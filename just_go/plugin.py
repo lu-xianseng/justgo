@@ -3,11 +3,11 @@
 # @Time     :2025/2/26 17:20
 # @Author   :luye
 """
-lets-go 框架的 pytest 插件入口。
+just-go 框架的 pytest 插件入口。
 
 原为测试项目根目录的 conftest.py，框架独立后迁移至此。
-通过 `lets-go run <项目>` 执行时由 CLI 注入 `-p lets_go.plugin` 加载；
-也可在测试项目 conftest.py 中声明 `pytest_plugins = ["lets_go.plugin"]` 后直接敲 pytest。
+通过 `just-go run <项目>` 执行时由 CLI 注入 `-p just_go.plugin` 加载；
+也可在测试项目 conftest.py 中声明 `pytest_plugins = ["just_go.plugin"]` 后直接敲 pytest。
 
 用例写法支持两种：
 - 同步：def test_xxx(page)，page 为 playwright.sync_api 页面（默认，原有方式）
@@ -16,10 +16,10 @@ lets-go 框架的 pytest 插件入口。
 """
 import asyncio
 import inspect
-from lets_go import *
-from lets_go.parse_tag import ParseTag  # 显式使用新版 ParseTag（tag/ 目录限定 + 可选模式），
-# 覆盖 from lets_go import * 可能绑定到 tag_manage 旧版 ParseTag 的情况
-from lets_go.settings import config as letsgo_config  # pytest_configure 参数名遮蔽 config，用别名
+from just_go import *
+from just_go.parse_tag import ParseTag  # 显式使用新版 ParseTag（tag/ 目录限定 + 可选模式），
+# 覆盖 from just_go import * 可能绑定到 tag_manage 旧版 ParseTag 的情况
+from just_go.settings import config as justgo_config  # pytest_configure 参数名遮蔽 config，用别名
 
 parse_tag = ParseTag()
 enable_record = False
@@ -140,7 +140,7 @@ def pytest_configure(config):
         global enable_record
         enable_record = True
     # 录屏后端：项目 pytest.ini 的 record_backend 优先，写入运行时配置供 Record 实时读取
-    letsgo_config.run.record_backend = config.getini("record_backend")
+    justgo_config.run.record_backend = config.getini("record_backend")
 
 
 def pytest_runtest_call(item):
@@ -151,16 +151,16 @@ def pytest_runtest_call(item):
 def pytest_pyfunc_call(pyfuncitem):
     """支持 async def 测试用例：在绑定的事件循环中执行协程。
 
-    异步用例的 page fixture 会在 request.node 上挂载 _letsgo_loop（其浏览器
+    异步用例的 page fixture 会在 request.node 上挂载 _justgo_loop（其浏览器
     driver 绑定该循环），此处复用同一循环执行用例；未请求 page 的纯异步用例
     则自建临时循环。返回 True 表示函数已由插件执行完毕。
     """
     if not inspect.iscoroutinefunction(pyfuncitem.obj):
         return None
-    loop = getattr(pyfuncitem, "_letsgo_loop", None)
+    loop = getattr(pyfuncitem, "_justgo_loop", None)
     if loop is None or loop.is_closed():
         loop = asyncio.new_event_loop()
-        pyfuncitem._letsgo_loop = loop
+        pyfuncitem._justgo_loop = loop
     # 与 pytest 原生行为一致：只传用例声明的 fixture 参数（避免注入未声明的自动 fixture）
     testargs = {
         arg: pyfuncitem.funcargs[arg]
@@ -187,7 +187,7 @@ def pytest_runtest_makereport(item, call):
             pages = page.context.pages
             try:
                 screenshot_path = f"{TEMP_PATH}/screenshot-{item.name}.png"
-                loop = getattr(item, "_letsgo_loop", None)
+                loop = getattr(item, "_justgo_loop", None)
                 if loop is not None and not loop.is_closed():
                     # 异步模式：screenshot 是协程，需在事件循环中执行
                     loop.run_until_complete(pages[-1].screenshot(path=screenshot_path))
@@ -271,14 +271,14 @@ def _sync_page_lifecycle(page_setup: dict):
 def _async_page_lifecycle(request, page_setup: dict):
     """异步模式：playwright.async_api 协程驱动，事件循环挂载到 request.node。
 
-    浏览器 driver 与用例执行共用同一事件循环（_letsgo_loop），用例中 await
+    浏览器 driver 与用例执行共用同一事件循环（_justgo_loop），用例中 await
     page.xxx() 与 fixture 的启动/关闭在同一 loop 内完成。
     """
     import shutil
     from playwright.async_api import async_playwright
 
     loop = asyncio.new_event_loop()
-    request.node._letsgo_loop = loop
+    request.node._justgo_loop = loop
     driver = loop.run_until_complete(async_playwright().start())
     browser = loop.run_until_complete(
         driver.chromium.launch_persistent_context(**page_setup)

@@ -95,31 +95,18 @@ config_path = os.path.join(
 config_parser.read(filenames=config_path, encoding="utf-8")
 config = ConfigWrapper(config_parser)
 
-# 框架根目录：lets_go 包所在项目的上级（相对路径形式的框架配置基于此解析）
+# 框架根目录：just_go 包所在项目的上级（相对路径形式的框架配置基于此解析）
 FRAMEWORK_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # 测试项目根目录：运行时通过 CLI 指定（环境变量 JUSTGO_PROJECT_ROOT 优先，否则取当前工作目录）
-# 旧名 LETSGO_PROJECT_ROOT 仍兼容读取（拆分/升级前的测试项目沿用）
-ROOTDIR = (
-    os.environ.get("JUSTGO_PROJECT_ROOT")
-    or os.environ.get("LETSGO_PROJECT_ROOT")
-    or os.getcwd()
-)
+ROOTDIR = os.environ.get("JUSTGO_PROJECT_ROOT") or os.getcwd()
 
 # 产物输出根目录：默认跟随测试项目根；发布/CI 场景可通过 JUSTGO_OUTPUT_ROOT 重定向，
 # 指定时按项目名分子目录输出（logs/reports/cache），多个项目互不串扰
-OUTPUT_ROOT = (
-    os.environ.get("JUSTGO_OUTPUT_ROOT")
-    or os.environ.get("LETSGO_OUTPUT_ROOT")
-    or ROOTDIR
-)
+OUTPUT_ROOT = os.environ.get("JUSTGO_OUTPUT_ROOT") or ROOTDIR
 
 # 项目标识名：用于 OUTPUT_ROOT 下的产物子目录（JUSTGO_PROJECT_NAME 优先，否则取项目根目录名）
-PROJECT_NAME = (
-    os.environ.get("JUSTGO_PROJECT_NAME")
-    or os.environ.get("LETSGO_PROJECT_NAME")
-    or os.path.basename(ROOTDIR)
-)
+PROJECT_NAME = os.environ.get("JUSTGO_PROJECT_NAME") or os.path.basename(ROOTDIR)
 
 # 产物基准目录：未指定输出根时直接位于项目根（保持拆分前行为），指定时位于 输出根/项目名
 OUTPUT_BASE = (
@@ -156,10 +143,7 @@ def _resolve_allure_path() -> str:
         return found
 
     # 用户目录安装（just-go install allure 的安装位置），多版本并存时取排序最新
-    # 旧目录 ~/.lets-go/allure 兼容读取（升级前的安装位置）
     user_allure_dir = os.path.join(os.path.expanduser("~"), ".just-go", "allure")
-    if not os.path.isdir(user_allure_dir):
-        user_allure_dir = os.path.join(os.path.expanduser("~"), ".lets-go", "allure")
     exe_name = "allure.bat" if os.name == "nt" else "allure"
     hits = sorted(glob.glob(os.path.join(user_allure_dir, "*", "bin", exe_name)))
     if hits:

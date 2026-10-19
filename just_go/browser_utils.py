@@ -21,7 +21,7 @@ try:
 except ImportError:
     print("Please install playwright")
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from lets_go.logger import logger
+from just_go.logger import logger
 
 F = TypeVar("F", bound=Callable[..., Any])
 

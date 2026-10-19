@@ -9,7 +9,7 @@ import inspect
 import allure
 from loguru import logger as llog
 from functools import wraps
-from lets_go.settings import LOG_PATH
+from just_go.settings import LOG_PATH
 
 
 class CustomLogger:

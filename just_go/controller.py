@@ -2,7 +2,7 @@
 # coding=utf-8
 # @Time     :2025/3/17 13:21
 # @Author   :luye
-from lets_go.exceptions import CaseError
+from just_go.exceptions import CaseError
 
 
 class CaseControl(type):
