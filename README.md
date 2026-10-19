@@ -1,124 +1,87 @@
-# lets-go
+# letsgo
 
-Web 自动化测试框架。框架和测试代码分开放：lets-go 装的是框架，测试项目是另一个目录，用命令指定项目来跑测试。
-
-## 安装
+Web 自动化测试框架：**框架与测试代码分离，一条命令指定测试项目执行自动化测试，自动产出报告。**
 
 ```bash
-pip install lets-go
+pip install letsgo
+lets-go install        # 安装运行依赖（浏览器、报告工具等）
+lets-go init SHOP-TEST # 生成测试项目骨架
+lets-go run SHOP-TEST  # 执行测试项目
 ```
 
-也可以下载 wheel 文件本地安装：
+框架只装一次，测试项目单独存放、各自独立。升级框架、换机器、发布到 CI，都不影响测试代码本身。
+
+## 它解决什么问题
+
+传统的 Web 自动化测试，框架代码和测试用例通常混在同一个项目里：换一个被测系统就要复制一份框架，框架升级要逐个项目改，别人接手还得先读懂整套源码。
+
+letsgo 把这两层拆开：
+
+```
+┌────────────────────┐        ┌────────────────────┐
+│  letsgo（框架）     │  run   │  测试项目（业务代码） │
+│  安装一次，全局复用  │ ──────▶│  pages / cases /    │
+│  pytest/报告/录屏/  │        │  apis / tag         │
+│  tag 筛选/配置      │        │  只写被测系统相关    │
+└────────────────────┘        └────────────────────┘
+```
+
+框架负责跑测试、出报告、管环境；测试项目只负责写被测系统（页面对象、接口封装、用例）。
+
+## 主要优点
+
+| 优点 | 说明 |
+| --- | --- |
+| **框架与测试代码分离** | 框架独立安装、独立升级；测试项目里没有任何框架源码，换项目、换人维护成本低 |
+| **PO 模式脚手架** | `lets-go init` 一键生成项目骨架，支持 GUI / API / 两者全要；基类下沉公共逻辑，写页面和用例时只关注业务 |
+| **同步 / 异步用例都支持** | `def` 或 `async def` 混着写都可以，无需安装 pytest-asyncio，框架自动路由 |
+| **内置轻量录屏** | 默认用 Playwright 内置录制（零额外依赖），跑完自动把 webm 附到报告；不想装 ffmpeg 也能录屏 |
+| **allure 报告开箱即用** | 自动生成 HTML 报告，附失败截图、录屏；报告工具和 Java 由 `lets-go install` 自动安装 |
+| **tag 用例筛选** | 项目 `tag/` 目录 + CSV 登记用例，`--tag` 表达式筛选（支持 and/or），按级别/场景挑着跑 |
+| **产物输出可重定向** | 日志、报告、录屏默认输出在测试项目根；CI 归档时用 `--output` 重定向到指定目录 |
+| **环境管理省心** | pipenv 虚拟环境自动引导；`lets-go install core/playwright/allure/ffmpeg` 按需安装，缺什么装什么 |
+| **配置都在项目里** | 被测地址、录屏后端、慢速等待都在测试项目配置，不动框架本身 |
+
+## 快速开始
+
+### 1. 安装框架
 
 ```bash
-pip install lets_go-0.1.0-py3-none-any.whl
+pip install letsgo
 ```
 
-装完在命令行里就有 `lets-go` 命令了。
-
-## 安装运行依赖
-
-框架运行需要一些依赖，用 `lets-go install` 装：
+装完先装运行依赖（浏览器、报告工具）：
 
 ```bash
-lets-go install          # 全部装好（推荐）
+lets-go install          # 全部依赖
 ```
 
-也可以分开装：
+### 2. 初始化测试项目
 
 ```bash
-lets-go install core        # 框架核心依赖（pytest、playwright 等）
-lets-go install playwright  # 浏览器 chromium（跑测试必须）
-lets-go install allure      # 报告工具，用于生成 HTML 报告
-lets-go install ffmpeg      # 桌面录屏用，可选
+lets-go init SHOP-TEST                     # GUI 骨架（页面对象 + 页面用例）
+lets-go init "SHOP-API[api]"               # API 骨架（接口封装 + 接口用例）
+lets-go init "SHOP-ALL[all]"               # 两种都生成
 ```
 
-几个说明：
+会在当前目录生成一个空白脚手架：目录结构、配置文件、开发指南都在，类名、方法名、业务逻辑由你按项目内 README 的步骤填充。
 
-- 报告工具 allure 不随框架打包，装的时候会下载到用户目录 `~/.lets-go/allure/`。生成 HTML 报告需要 Java，没装的话命令会自动尝试安装（用 winget 装 Temurin JDK），装不了会给手动下载地址。不装 allure 也能跑用例、出原始结果，只是不出 HTML 报告。
-- 录屏默认用 Playwright 自带的，不需要装 ffmpeg。只有你想切回桌面录屏时才需要 ffmpeg。
-- 测试项目自己用的 Python 包（比如 redis、pymysql），装到运行 lets-go 的那个 Python 里就行。开发版（源码目录里跑）用 `pipenv install 包名`，安装版直接 `pip install 包名`。
+### 3. 配置被测地址
 
-## 新建测试项目
+打开测试项目的 `conftest.py`，把 `LETSGO_TEST_BASE_URL` 改成被测系统实际地址。
 
-```bash
-lets-go init SHOP-TEST              # 默认 GUI 骨架（页面对象 + 页面用例）
-lets-go init "SHOP-API[api]"        # API 骨架（接口封装 + 接口用例）
-lets-go init "SHOP-ALL[all]"        # 两种都生成
-```
-
-会在当前目录下生成对应项目（想放别处就写绝对路径，比如 `lets-go init D:\ProjectCode\SHOP-TEST`，项目名取目录名）。目录已存在且不为空时会拒绝。
-
-生成的是空骨架：GUI 类型有 `cases/module/`、`pages/module_page/`、`tag/module.csv`；API 类型有 `apis/module/`、`cases/api/`、`tag/api.csv`；加上 `conftest.py`、`pytest.ini` 和一份开发指南。文件里只留了说明注释，页面类、接口方法、用例函数这些都要自己填。先看项目里那份 `README.md`，按里面的步骤写。
-
-写用例之前，先打开 `conftest.py`，把 `LETSGO_TEST_BASE_URL` 改成被测系统的实际地址。
-
-## 注册项目
+### 4. 注册并运行
 
 ```bash
 lets-go add shop D:\ProjectCode\SHOP-TEST   # 注册，名字自己起
-lets-go list                                 # 看已注册的项目
-lets-go remove shop                          # 取消注册
+lets-go run shop                            # 执行全部用例
+lets-go run shop --tag "smoke and L1"       # 按 tag 筛选
+lets-go run shop --collect-only             # 只收集用例，不执行
 ```
 
-注册不是必须的，不注册也能直接按路径跑。
+跑完打开 `reports/` 下最新目录里的 `index.html` 看报告，录屏、失败截图都在里面。
 
-## 跑测试
-
-```bash
-lets-go run shop                                # 按注册名跑
-lets-go run D:\ProjectCode\SHOP-TEST            # 按路径跑
-lets-go run shop --collect-only                 # 只收集用例，不执行
-lets-go run shop --tag "smoke and L1"           # 按标记筛选
-```
-
-其他 pytest 参数也能往后加，直接透传给 pytest。
-
-## 测试报告、日志、录屏在哪
-
-默认输出在**测试项目根目录**下：
-
-```
-SHOP-TEST/
-├─ logs/           # 运行日志
-├─ reports/        # allure HTML 报告（带时间戳的目录）
-└─ cache/
-   ├─ report/      # allure 原始结果，录屏、截图也在里面
-   └─ temp/        # 录屏等临时文件
-```
-
-不想输出到项目目录（比如 CI 归档、项目目录只读），可以重定向：
-
-```bash
-lets-go run shop --output D:\lets-go-output
-```
-
-产物会放到 `D:\lets-go-output\shop\` 下面（输出根目录 + 项目名）。也可以用环境变量 `LETSGO_OUTPUT_ROOT`，效果一样。
-
-报告用浏览器打开 `reports` 里最新时间戳目录下的 `index.html`。
-
-## 配置
-
-**被测系统地址**：改测试项目 `conftest.py` 里的 `LETSGO_TEST_BASE_URL`。有测试管理平台的话，可以再配 `LETSGO_TEST_CASE_BASE_URL` 让报告里带上用例链接。
-
-**录屏后端**：在测试项目 `pytest.ini` 里指定：
-
-```ini
-record_backend = ffmpeg   # 桌面录屏（需安装 ffmpeg）；默认 playwright（内置录屏）
-```
-
-**其他运行配置**：在测试项目 `conftest.py` 里赋值，只对这次运行生效：
-
-```python
-from lets_go import config
-
-config.run.slow_time = 1000          # 操作间隔毫秒
-config.run.show_browser = False      # 无头模式
-```
-
-## 用例写法
-
-同步、异步都行，一个项目里可以混着写。
+## 用例怎么写
 
 同步（默认）：
 
@@ -126,34 +89,74 @@ config.run.show_browser = False      # 无头模式
 def test_login(page):
     page.goto("https://example.com")
     page.fill("#user", "admin")
+    assert "登录成功" in page.content()
 ```
 
-异步，用 `await`，不需要装 pytest-asyncio：
+异步，用 `await`：
 
 ```python
 async def test_login(page):
     await page.goto("https://example.com")
     await page.fill("#user", "admin")
+    assert "登录成功" in await page.content()
 ```
 
-`page` 是框架给的 fixture，用例直接拿。失败自动截图、录屏对两种写法都生效。
+`page` 是框架提供的 fixture，两种写法在一个项目里可以混用。
 
-## tag 筛选（可选）
+## 常用命令
 
-项目根放一个 `tag/` 目录，里面一个模块一个 CSV，登记用例。没有这个目录就不启用筛选，用例全部执行。
+| 命令 | 作用 |
+| --- | --- |
+| `lets-go install [core\|playwright\|allure\|ffmpeg\|all]` | 安装/检查运行依赖 |
+| `lets-go init <目录[类型]>` | 初始化测试项目骨架（gui/api/all，默认 gui） |
+| `lets-go add <名称> <路径>` | 注册测试项目 |
+| `lets-go list` | 列出已注册项目 |
+| `lets-go remove <名称>` | 取消注册 |
+| `lets-go run <名称\|路径> [pytest参数]` | 执行测试项目，其余参数透传给 pytest |
+
+## 配置
+
+| 配置项 | 位置 | 说明 |
+| --- | --- | --- |
+| 被测系统地址 | 项目 `conftest.py` 的 `LETSGO_TEST_BASE_URL` | 必改 |
+| 用例链接前缀 | 项目 `conftest.py` 的 `LETSGO_TEST_CASE_BASE_URL` | 可选，报告带用例链接 |
+| 录屏后端 | 项目 `pytest.ini` 的 `record_backend` | `playwright`（内置，默认）或 `ffmpeg`（桌面录屏） |
+| 慢速 / 无头模式 | 项目 `conftest.py` 里 `config.run.slow_time` 等 | 运行时覆盖，只对本次运行生效 |
+| 产物输出目录 | `lets-go run <项目> --output <目录>` | 重定向日志/报告/录屏，适合 CI 归档 |
+
+测试项目自身的 Python 依赖（如 redis、pymysql）直接装到运行 letsgo 的 Python 里即可。
+
+## 测试项目组织
+
+`lets-go init` 生成的标准结构（GUI）：
 
 ```
-tag/module.csv:
-脚本ID,用例ID,用例级别,场景,跳过原因,废弃,其它
-1001,1001,L1,模块搜索,,,
+SHOP-TEST/
+├─ conftest.py            # 注入被测地址、声明框架插件
+├─ pytest.ini             # pytest 配置、录屏开关
+├─ cases/                 # 用例（含 base_case 用例基类）
+├─ pages/                 # 页面对象（含 base_page 页面基类）
+└─ tag/                   # 用例标记（可选）
 ```
 
-跑的时候用 `--tag` 筛选。不想用了，把 `tag/` 目录删掉就行。
+框架对测试项目**不强制结构**：只要项目根有 `conftest.py` 声明框架插件就能跑。`init` 生成的结构是推荐起点，你完全可以根据自己的项目调整。
 
-## 录屏
+## 运行产物
 
-默认开着，用 Playwright 内置录屏，跑完自动把 webm 附到报告里。不想录屏，把 `pytest.ini` 里的 `--record=yes` 删掉。想用桌面录屏（需要安装 ffmpeg），在测试项目 `pytest.ini` 里改：
+默认输出在测试项目根下：
 
-```ini
-record_backend = ffmpeg
 ```
+SHOP-TEST/
+├─ logs/           # 运行日志
+├─ reports/        # allure HTML 报告
+└─ cache/          # allure 原始结果、录屏、截图
+```
+
+CI 或只读目录场景，用 `--output` 重定向到指定目录（按 输出根/项目名 分子目录，多项目互不干扰）。
+
+## 环境要求
+
+- Python 3.10+
+- 浏览器由 `lets-go install playwright` 自动安装
+- allure 报告需要 Java，`lets-go install allure` 检测到缺失会自动尝试安装（winget 装 Temurin JDK），装不了会给出手动下载指引
+- ffmpeg 仅在使用 `record_backend = ffmpeg` 桌面录屏时需要，可选
