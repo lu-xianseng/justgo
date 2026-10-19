@@ -465,12 +465,12 @@ python_functions = test_*
 #       def open_page(self, page, path=""):
 #           ...
 ''',
-    "cases/home/test_xxx.py": '''#!/usr/bin/env python3
+    "cases/module/test_xxx.py": '''#!/usr/bin/env python3
 # coding=utf-8
 """用例文件（cases/<模块>/test_<模块>_<用例ID>.py）
 
 约定：
-- 文件名：test_<模块>_<用例ID>.py，例如 test_home_1001.py（本文件为占位骨架，请重命名）
+- 文件名：test_<模块>_<用例ID>.py，例如 test_module_1001.py（本文件为占位骨架，请重命名）
 - 用例函数名：test_<模块>_<用例ID>，用例ID 与 tag/<模块>/<模块名>.csv 里的 用例ID 对应
 - 通过框架的 page fixture 拿页面；同步用例直接调用，异步用例 async def + await
 
@@ -482,13 +482,13 @@ python_functions = test_*
 
 # 在这里写你的用例，例如：
 #   import allure
-#   from pages import HomePage
+#   from pages import ModulePage
 #   from cases.base_case import BaseCase
 #
-#   @allure.feature("首页")
-#   class TestHome(BaseCase):
-#       page_cls = HomePage
-#       def test_home_1001(self, page):
+#   @allure.feature("模块")
+#   class TestModule(BaseCase):
+#       page_cls = ModulePage
+#       def test_module_1001(self, page):
 #           ...
 ''',
     "pages/__init__.py": '''#!/usr/bin/env python3
@@ -503,7 +503,7 @@ python_functions = test_*
 
 # 在这里导出你的页面对象，例如：
 #   from pages.base_page import BasePage
-#   from pages.home_page.page import HomePage
+#   from pages.module_page.page import ModulePage
 #   __all__ = ["BasePage", "HomePage"]
 ''',
     "pages/base_page.py": '''#!/usr/bin/env python3
@@ -532,7 +532,7 @@ python_functions = test_*
 #           self.page.click(locator)
 #       ...
 ''',
-    "pages/home_page/page.py": '''#!/usr/bin/env python3
+    "pages/module_page/page.py": '''#!/usr/bin/env python3
 # coding=utf-8
 """页面对象（pages/<页面>/page.py）
 
@@ -556,7 +556,7 @@ python_functions = test_*
 #       def get_search_result(self):
 #           ...
 ''',
-    "tag/home.csv": '''脚本ID,用例ID,用例级别,场景,跳过原因,废弃,其它
+    "tag/module.csv": '''脚本ID,用例ID,用例级别,场景,跳过原因,废弃,其它
 ''',
     "README.md": '''# {name} 自动化测试项目
 
@@ -568,17 +568,17 @@ python_functions = test_*
 {name}/
 ├─ conftest.py            # 项目根配置：声明框架插件 + 注入被测地址（必改）
 ├─ pytest.ini             # pytest 配置：收集规则 / 默认录屏
-├─ cases/                 # 测试用例（一个用例文件 = 一个页面/功能的一组用例）
+├─ cases/                 # 测试用例（一个用例文件 = 一个模块/功能的一组用例）
 │  ├─ base_case.py        # 用例基类：公共样板（打开页面/实例化页面对象）下沉到这里
-│  └─ home/
+│  └─ module/
 │     └─ test_xxx.py      # 用例占位文件：按命名约定重命名并填充（见三步走）
 ├─ pages/                 # 页面对象（PO 核心：每个页面一个类）
 │  ├─ __init__.py         # 统一出口：所有页面对象在此导出，用例从 pages 导入
 │  ├─ base_page.py        # 页面基类：通用元素操作/常用按钮（业务无关）
-│  └─ home_page/
+│  └─ module_page/
 │     └─ page.py
 └─ tag/                   # 用例标记（可选：tag 机制启用后支持 --tag 筛选）
-   └─ home.csv            # 一个模块目录一个 CSV，登记该目录下所有用例
+   └─ module.csv          # 一个模块目录一个 CSV，登记该目录下所有用例
 ```
 
 > **骨架说明**：本命令生成的是**空白脚手架**——目录结构、配置、开发指南都在，
@@ -624,9 +624,9 @@ class HomePage(BasePage):
 
 ```python
 from pages.base_page import BasePage
-from pages.home_page.page import HomePage
+from pages.module_page.page import ModulePage
 
-__all__ = ["BasePage", "HomePage"]
+__all__ = ["BasePage", "ModulePage"]
 ```
 
 ### 2. 写用例（cases/）
@@ -635,17 +635,17 @@ __all__ = ["BasePage", "HomePage"]
 ```python
 import allure
 from cases.base_case import BaseCase
-from pages import HomePage
+from pages import ModulePage
 
-@allure.feature("首页")
-class TestHome(BaseCase):
-    page_cls = HomePage  # 被测页面对象类
+@allure.feature("模块")
+class TestModule(BaseCase):
+    page_cls = ModulePage  # 被测页面对象类
 
-    def test_home_search_1001(self, page):
-        """首页搜索功能验证"""
-        home = self.open_page(page)  # 基类样板：实例化 HomePage 并打开
-        home.search("手机")          # 业务步骤
-        assert "手机" in home.get_search_result(), "搜索结果应包含关键词"
+    def test_module_search_1001(self, page):
+        """模块搜索功能验证"""
+        module = self.open_page(page)  # 基类样板：实例化 ModulePage 并打开
+        module.search("手机")          # 业务步骤
+        assert "手机" in module.get_search_result(), "搜索结果应包含关键词"
 ```
 
 约定：
@@ -659,13 +659,13 @@ class TestHome(BaseCase):
 **一个模块目录对应一个 CSV**（文件名 = 模块目录名），登记该目录下所有用例：
 
 ```
-tag/home.csv:
+tag/module.csv:
 脚本ID,用例ID,用例级别,场景,跳过原因,废弃,其它
-1001,1001,L1,首页搜索,,,
+1001,1001,L1,模块搜索,,,
 ```
 
 - 脚本ID 必须等于 用例ID（框架校验）；
-- 运行时可筛选：`lets-go run <项目> --tag "L1 and 首页"`；
+- 运行时可筛选：`lets-go run <项目> --tag "L1 and 模块"`；
 - 不想用 tag：删掉 `tag/` 目录即可，用例直接全部执行。
 
 ## 运行
