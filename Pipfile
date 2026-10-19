@@ -9,11 +9,8 @@ verify_ssl = true
 name = "mirrorshuaweicloud"
 
 [packages]
-redis = ">=5.2.1"
-pycryptodome = "*"
-jsonpath = "*"
-
-# 注：pytest-playwright 已从框架移除（浏览器由框架经 playwright 库自行管理）
+# 注：框架只管理自身依赖；测试项目自己的第三方包（如 redis/pymysql 等）由项目
+#     在共享环境中自行安装（cd 框架目录后 pipenv install <包>）。
 pytest = {version = ">=8.3.4", index = "mirrorshuaweicloud"}
 pytest-rerunfailures = {version = "*", index = "mirrorshuaweicloud"}
 allure-python-commons = {version = ">=2.13.5", index = "mirrorshuaweicloud"}

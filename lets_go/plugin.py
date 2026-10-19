@@ -32,11 +32,22 @@ def pytest_collection_modifyitems(session, config, items):
     registered_marks = [mark.split(":")[0].strip() for mark in config.getini("markers")]
 
     tag_expression = config.getoption("--tag")
+    # tag 模式为可选项：项目根存在 tag/*.csv 数据（pytest_sessionstart 已加载进缓存）时启用；
+    # 未配置 tag 数据的项目不校验、不筛选，用例直接执行——不强制任何测试项目的组织方式
+    tag_mode = bool(parse_tag.TEST_TAGS_CACHE)
     if tag_expression:
-        logger.info(f"应用标签筛选表达式: {tag_expression}")
+        if tag_mode:
+            logger.info(f"应用标签筛选表达式: {tag_expression}")
+        else:
+            logger.warning(
+                "项目未配置 tag 数据（未发现 tag/*.csv），--tag 筛选不可用，将执行全部用例"
+            )
 
     for item in items:
         if not isinstance(item, Function):
+            continue
+        if not tag_mode:
+            # 未采用 tag 管理模式：用例直接执行，不要求用例名含 ID、不校验 tag
             continue
 
         test_id = parse_tag.get_test_case_id(item)
@@ -121,8 +132,10 @@ def pytest_runtest_call(item):
 @pytest.hookimpl(tryfirst=True, hookwrapper=True)
 def pytest_runtest_makereport(item, call):
     outcome = yield
+    test_id = parse_tag.get_test_case_id(item)
     doc_string = item.obj.__doc__ or "未命名用例"
-    allure.dynamic.title(f"{parse_tag.get_test_case_id(item)}-{doc_string}")
+    # 未采用 tag 模式（或用例名无 ID）时，标题直接用用例描述
+    allure.dynamic.title(f"{test_id}-{doc_string}" if test_id else doc_string)
     report = outcome.get_result()
     custom_logger.attach_logs_to_allure(
         report.when if report.when != "call" else "case"

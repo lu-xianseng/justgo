@@ -18,14 +18,6 @@ dependencies = [
     "playwright",
 ]
 
-# 旧测试项目的历史依赖（测试代码直接 import，非框架必需）：lets-go install legacy 安装
-[project.optional-dependencies]
-legacy = [
-    "jsonpath",
-    "redis",
-    "pycryptodome",
-]
-
 [project.scripts]
 lets-go = "cli:main"
 

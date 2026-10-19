@@ -47,7 +47,6 @@ lets-go install
 
 # 或分组件安装
 lets-go install core         # 框架核心 Python 依赖（pytest/allure-pytest/playwright 等）
-lets-go install legacy       # 旧测试项目历史依赖（jsonpath/redis/pycryptodome，测试代码直接使用）
 lets-go install playwright   # Playwright 浏览器 chromium + 录制编码器 ffmpeg（webm 录屏必需）
 lets-go install allure       # 检查报告工具：Java + allure CLI（生成 HTML 报告）
 lets-go install ffmpeg       # 系统 ffmpeg（仅桌面录屏后端 record_backend=ffmpeg 需要，可选）
@@ -56,7 +55,9 @@ lets-go install ffmpeg       # 系统 ffmpeg（仅桌面录屏后端 record_back
 说明：
 
 - Python 依赖统一由 pipenv 安装到虚拟环境：`lets-go install`（全部）按 `Pipfile` 全量安装；
-  `install core` / `install legacy` 按 `pyproject.toml` 的依赖清单增量安装（清单与 Pipfile 一致）；
+  `install core` 按 `pyproject.toml` 的依赖清单安装（清单与 Pipfile 一致）；
+- 框架只管理自身依赖，**测试项目自己的第三方包由项目自行安装**
+  （`cd <框架目录>` 后 `pipenv install <包>`，装进同一共享环境）；
 - 浏览器与框架 playwright 库版本自动匹配，无需手动对齐；
 - 不装 allure/ffmpeg 不影响用例执行与 allure 原始结果（录屏 webm 照常产出），仅影响
   HTML 报告生成与桌面录屏。
@@ -144,18 +145,25 @@ ffmpeg，用例执行时录制页面并产出 webm，自动以附件插入 allur
 record_backend = ffmpeg
 ```
 
-## 测试项目需要满足的约定
+## 测试项目组织方式（可自由选择，非强制）
 
+框架对测试项目**不强制任何组织结构**——下列模式源自参考项目 web_auto_test，
+你的项目可以完全照搬、部分采用或自行设计：
 
+**最小要求（仅一条）**：测试项目根目录下有一个 conftest.py，声明
+`pytest_plugins = ["lets_go.plugin"]`（让框架插件生效，`lets-go run` 本身也会注入插件，
+此条是为了支持直接敲 pytest 的场景）。
 
-* 根目录下有一个 conftest.py，至少声明 `pytest_plugins = ["lets_go.plugin"]`（框架插件兜底）；
+**可选模式（参考 web_auto_test）**：
 
 * 测试代码中 `from lets_go import ...` 引用框架（原 `from src import ...` 已统一改写）；
-
-* tag CSV 位于用例目录对应位置（沿用原有 `cases -> tag` 映射规则）；
-
+* **tag 筛选机制（可选）**：项目根放 `tag/` 目录 + CSV 标记文件（沿用 `cases -> tag`
+  映射规则），`--tag` 表达式筛选即可用；项目没有 `tag/` 目录时，用例不校验、不筛选，
+  直接全部执行；
 * 应用级 fixture、环境配置（config）留在测试项目内，属于测试项目自身；
-
 * 被测系统地址 / 禅道用例地址等**测试项目相关配置**不在框架 config 中，由测试项目通过环境变量注入：
   `LETSGO_TEST_BASE_URL`（allure 报告环境信息）、`LETSGO_TEST_CASE_BASE_URL`（allure 用例链接），
   未配置时框架自动跳过对应项。
+
+**测试项目自己的 Python 依赖**（如 redis、pymysql 等）由项目自行安装到共享环境：
+`cd <框架目录>` 后执行 `pipenv install <包>`，测试代码即可直接 import。

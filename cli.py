@@ -141,9 +141,8 @@ def cmd_run(args) -> int:
 
 # ---------------------------------------------------------------------------
 # lets-go install：框架依赖安装 / 检查（pipenv 管理虚拟环境）
-# 组件：core（框架核心 Python 依赖）| legacy（旧测试项目历史依赖）|
-#       playwright（浏览器 + 录制编码器）| allure（报告工具）|
-#       ffmpeg（桌面录屏后端，可选）| all（全部，默认）
+# 组件：core（框架核心 Python 依赖）| playwright（浏览器 + 录制编码器）|
+#       allure（报告工具）| ffmpeg（桌面录屏后端，可选）| all（全部，默认）
 # ---------------------------------------------------------------------------
 
 def _pipenv_venv_path() -> str | None:
@@ -217,33 +216,24 @@ def _pipenv_install(packages: list | None, title: str) -> int:
     return subprocess.call(cmd)
 
 
-def _parse_pyproject_deps() -> tuple:
-    """从 pyproject.toml 解析依赖清单，返回 (core, legacy) 两个列表"""
+def _parse_pyproject_deps() -> list:
+    """从 pyproject.toml 解析框架核心依赖清单"""
     pyproject = os.path.join(FRAMEWORK_ROOT, "pyproject.toml")
     with open(pyproject, encoding="utf-8") as f:
         text = f.read()
-    core, legacy = [], []
     m = re.search(r"^dependencies\s*=\s*\[(.*?)\]", text, re.M | re.S)
-    if m:
-        core = [x.strip().strip("\"'") for x in m.group(1).split(",") if x.strip()]
-    m = re.search(r"^legacy\s*=\s*\[(.*?)\]", text, re.M | re.S)
-    if m:
-        legacy = [x.strip().strip("\"'") for x in m.group(1).split(",") if x.strip()]
-    return core, legacy
+    if not m:
+        return []
+    return [x.strip().strip("\"'") for x in m.group(1).split(",") if x.strip()]
 
 
 def _install_core() -> int:
-    core, _ = _parse_pyproject_deps()
+    core = _parse_pyproject_deps()
     return _pipenv_install(core, "安装框架核心 Python 依赖（pipenv）")
 
 
-def _install_legacy() -> int:
-    _, legacy = _parse_pyproject_deps()
-    return _pipenv_install(legacy, "安装旧测试项目历史依赖 jsonpath/redis/pycryptodome（pipenv）")
-
-
 def _install_all_py() -> int:
-    """按 Pipfile 全量安装（覆盖 core + legacy 全部 Python 依赖）"""
+    """按 Pipfile 全量安装框架 Python 依赖"""
     return _pipenv_install(None, "安装全部 Python 依赖（按 Pipfile）")
 
 
@@ -324,7 +314,6 @@ def cmd_install(args) -> int:
             ("ffmpeg", _install_ffmpeg),
         ],
         "core": [("core", _install_core)],
-        "legacy": [("legacy", _install_legacy)],
         "playwright": [("playwright", _install_playwright)],
         "allure": [("allure", _install_allure)],
         "ffmpeg": [("ffmpeg", _install_ffmpeg)],
@@ -373,10 +362,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_install.add_argument(
         "component",
         nargs="?",
-        choices=["core", "legacy", "playwright", "allure", "ffmpeg", "all"],
+        choices=["core", "playwright", "allure", "ffmpeg", "all"],
         default="all",
-        help="安装组件：core(框架核心Python依赖)/legacy(旧测试项目历史依赖)/"
-        "playwright(浏览器+录制编码器)/allure(报告工具)/ffmpeg(桌面录屏，可选)/all(全部，默认)",
+        help="安装组件：core(框架核心Python依赖)/playwright(浏览器+录制编码器)/"
+        "allure(报告工具)/ffmpeg(桌面录屏，可选)/all(全部，默认)",
     )
     p_install.set_defaults(func=cmd_install)
 

@@ -16,12 +16,18 @@ class ParseTag:
 
     @staticmethod
     def find_all_csv_files(root_dir: str) -> List[str]:
-        """查找根目录下所有的CSV标记文件"""
+        """查找 tag 目录下所有的 CSV 标记文件。
+
+        仅扫描 <项目根>/tag 目录：tag 机制是可选的，只有项目显式提供 tag 数据
+        才启用；项目内其他位置的 .csv（如数据文件）不会被误判为 tag 文件。
+        """
+        tag_dir = os.path.join(root_dir, "tag")
         csv_files = []
-        for dirpath, _, filenames in os.walk(root_dir):
-            for filename in filenames:
-                if filename.endswith('.csv'):
-                    csv_files.append(os.path.join(dirpath, filename))
+        if os.path.isdir(tag_dir):
+            for dirpath, _, filenames in os.walk(tag_dir):
+                for filename in filenames:
+                    if filename.endswith(".csv"):
+                        csv_files.append(os.path.join(dirpath, filename))
         return csv_files
 
     def load_all_test_tags(self, session) -> None:
