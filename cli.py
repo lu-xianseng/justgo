@@ -421,7 +421,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument(
         "pytest_args",
         nargs=argparse.REMAINDER,
-        help="透传给 pytest 的参数，如 --tag \"smoke and L1\" --collect-only",
+        help="透传给 pytest 的参数，如 --record=yes(录屏) --tag \"smoke and L1\" --collect-only",
     )
     p_run.set_defaults(func=cmd_run)
 
