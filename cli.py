@@ -14,7 +14,7 @@ just-go 命令行入口。
 
 run 内部机制：
     1. 解析目标为已注册名称或直接路径，得到测试项目根目录；
-    2. 设置环境变量 LETSGO_PROJECT_ROOT 指向测试项目根（框架据此定位 tag/日志/报告）；
+    2. 设置环境变量 JUSTGO_PROJECT_ROOT 指向测试项目根（框架据此定位 tag/日志/报告）；
     3. 注入 PYTHONPATH（含框架根），保证未安装时 lets_go 也可导入；
     4. 以测试项目根为工作目录调用 `python -m pytest -p lets_go.plugin <参数>`。
 """
@@ -31,21 +31,25 @@ FRAMEWORK_ROOT = os.path.dirname(os.path.abspath(__file__))
 if FRAMEWORK_ROOT not in sys.path:
     sys.path.insert(0, FRAMEWORK_ROOT)
 
-REGISTRY_DIR = os.path.join(os.path.expanduser("~"), ".lets-go")
+REGISTRY_DIR = os.path.join(os.path.expanduser("~"), ".just-go")
 REGISTRY_FILE = os.path.join(REGISTRY_DIR, "projects.json")
+# 旧目录兼容：升级前注册的项目在 ~/.lets-go/projects.json，读取时一并加载
+LEGACY_REGISTRY_FILE = os.path.join(os.path.expanduser("~"), ".lets-go", "projects.json")
 
 
 def load_registry() -> dict:
-    """读取项目注册表"""
-    if os.path.exists(REGISTRY_FILE):
-        try:
-            with open(REGISTRY_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if isinstance(data, dict):
-                return data
-        except (json.JSONDecodeError, OSError):
-            pass
-    return {}
+    """读取项目注册表（~/.just-go 优先，~/.lets-go 旧目录兼容，同名新目录覆盖）"""
+    data: dict = {}
+    for _f in (REGISTRY_FILE, LEGACY_REGISTRY_FILE):
+        if os.path.exists(_f):
+            try:
+                with open(_f, "r", encoding="utf-8") as fh:
+                    _loaded = json.load(fh)
+                if isinstance(_loaded, dict):
+                    data.update(_loaded)
+            except (json.JSONDecodeError, OSError):
+                pass
+    return data
 
 
 def save_registry(data: dict) -> None:
@@ -112,11 +116,11 @@ def cmd_run(args) -> int:
 
     # 2. 环境：注入测试项目根 + 输出根 + PYTHONPATH
     env = os.environ.copy()
-    env["LETSGO_PROJECT_ROOT"] = project_root
-    env["LETSGO_PROJECT_NAME"] = project_name
+    env["JUSTGO_PROJECT_ROOT"] = project_root
+    env["JUSTGO_PROJECT_NAME"] = project_name
     if args.output:
-        env["LETSGO_OUTPUT_ROOT"] = os.path.abspath(os.path.expanduser(args.output))
-        print(f"运行产物输出目录：{env['LETSGO_OUTPUT_ROOT']}")
+        env["JUSTGO_OUTPUT_ROOT"] = os.path.abspath(os.path.expanduser(args.output))
+        print(f"运行产物输出目录：{env['JUSTGO_OUTPUT_ROOT']}")
     pythonpath = FRAMEWORK_ROOT
     if env.get("PYTHONPATH"):
         pythonpath = pythonpath + os.pathsep + env["PYTHONPATH"]
@@ -165,11 +169,11 @@ def _is_venv() -> bool:
 
 def _ensure_pipenv_runtime(argv: list) -> None:
     """引导到 pipenv 环境：
-    - 已运行在虚拟环境（含 pipenv venv）或显式跳过（LETSGO_SKIP_PIPENV）时直接继续；
+    - 已运行在虚拟环境（含 pipenv venv）或显式跳过（JUSTGO_SKIP_PIPENV）时直接继续；
     - 否则通过 `pipenv run python cli.py <argv>` 重新执行，保证依赖与 pytest
       都落在 pipenv 虚拟环境中（sys.executable = venv python）。
     """
-    if _is_venv() or os.environ.get("LETSGO_SKIP_PIPENV"):
+    if _is_venv() or os.environ.get("JUSTGO_SKIP_PIPENV"):
         return
     if any(a in ("-h", "--help") for a in argv):
         return
@@ -277,7 +281,7 @@ DEFAULT_ALLURE_VERSION = "2.24.1"
 
 
 def _install_allure(version: str = None) -> int:
-    """下载安装 allure 报告工具到用户目录 ~/.lets-go/allure（版本与框架解耦）
+    """下载安装 allure 报告工具到用户目录 ~/.just-go/allure（版本与框架解耦）
 
     安装位置会被 settings 的自动查找逻辑识别（config.ini allure_path 留空即可）。
     需要 Java（allure 为 Java 工具）；可指定版本：just-go install allure 2.30.0
@@ -311,7 +315,7 @@ def _install_allure(version: str = None) -> int:
             return 1
     print(f"  [OK] Java：{java}")
 
-    install_dir = os.path.join(os.path.expanduser("~"), ".lets-go", "allure")
+    install_dir = os.path.join(os.path.expanduser("~"), ".just-go", "allure")
     exe_name = "allure.bat" if os.name == "nt" else "allure"
     allure_exe = os.path.join(install_dir, f"allure-{ver}", "bin", exe_name)
     if os.path.exists(allure_exe):
@@ -423,8 +427,8 @@ COMMON_TEMPLATES = {
 """测试项目根 conftest：让 just-go 框架插件生效，并向框架注入本项目配置。
 
 必改项（按你的项目填写）：
-- LETSGO_TEST_BASE_URL：被测系统实际地址（写入报告环境信息；页面对象跳转时也读取它）
-- LETSGO_TEST_CASE_BASE_URL：测试管理平台（如禅道）用例链接前缀，写入报告用例链接（可选）
+- JUSTGO_TEST_BASE_URL：被测系统实际地址（写入报告环境信息；页面对象跳转时也读取它）
+- JUSTGO_TEST_CASE_BASE_URL：测试管理平台（如禅道）用例链接前缀，写入报告用例链接（可选）
 
 可选配置（在项目里改，不用动框架）：
 - 录屏后端：在 pytest.ini 里指定 record_backend（playwright 内置 / ffmpeg 桌面录屏）
@@ -435,9 +439,9 @@ import os
 from lets_go import config
 
 # TODO: 填写被测系统的实际地址，例如 http://192.168.1.10:8080
-os.environ.setdefault("LETSGO_TEST_BASE_URL", "")
+os.environ.setdefault("JUSTGO_TEST_BASE_URL", "")
 # TODO: 可选，例如 https://zentao.example.com/case-view-{id}.html
-os.environ.setdefault("LETSGO_TEST_CASE_BASE_URL", "")
+os.environ.setdefault("JUSTGO_TEST_CASE_BASE_URL", "")
 
 # 示例：慢速操作等待毫秒数 / 无头模式（录屏后端见 pytest.ini）
 # config.run.slow_time = 1000
@@ -520,8 +524,8 @@ pytest
 
 | 配置项 | 位置 | 说明 |
 | --- | --- | --- |
-| 被测系统地址 | conftest.py 的 LETSGO_TEST_BASE_URL | 必改，页面跳转基址 + 报告环境信息 |
-| 用例链接前缀 | conftest.py 的 LETSGO_TEST_CASE_BASE_URL | 可选 |
+| 被测系统地址 | conftest.py 的 JUSTGO_TEST_BASE_URL | 必改，页面跳转基址 + 报告环境信息 |
+| 用例链接前缀 | conftest.py 的 JUSTGO_TEST_CASE_BASE_URL | 可选 |
 | 录屏开关 | pytest.ini 的 --record | 默认开；删掉该行即关闭 |
 | 录屏后端 | pytest.ini 的 record_backend | 默认 playwright（内置录屏）；改 ffmpeg 需安装 ffmpeg |
 | 慢速/是否显示浏览器 | conftest.py 里 config.run.xxx | 运行时覆盖，优先级高于框架配置文件 |
@@ -657,7 +661,7 @@ API_TEMPLATES = {
 
 职责：把被测系统的接口按模块封装成方法，供用例调用。
 一个接口一个方法：请求地址 + 参数 + 返回业务结果给用例断言。
-接口基址用 conftest 注入的 LETSGO_TEST_BASE_URL，未配时为空。
+接口基址用 conftest 注入的 JUSTGO_TEST_BASE_URL，未配时为空。
 
 写法参考项目 README「API 用例怎么开发」。
 """
@@ -666,7 +670,7 @@ API_TEMPLATES = {
 #   import os
 #   import requests  # 需要先安装：pip install requests
 #
-#   BASE = os.environ.get("LETSGO_TEST_BASE_URL", "")
+#   BASE = os.environ.get("JUSTGO_TEST_BASE_URL", "")
 #
 #   def login(username, password):
 #       resp = requests.post(f"{BASE}/api/login", json={"username": username, "password": password})
@@ -817,7 +821,7 @@ API_SECTION = '''
 import os
 import requests  # 需要先安装：pip install requests
 
-BASE = os.environ.get("LETSGO_TEST_BASE_URL", "")
+BASE = os.environ.get("JUSTGO_TEST_BASE_URL", "")
 
 def login(username, password):
     resp = requests.post(f"{BASE}/api/login", json={"username": username, "password": password})
@@ -899,7 +903,7 @@ def cmd_init(args) -> int:
     for rel in templates:
         print(f"  {os.path.join(target, rel)}")
     print("\n下一步：")
-    print(f"  1. 编辑 {os.path.join(target, 'conftest.py')} 里的 LETSGO_TEST_BASE_URL 为被测系统实际地址")
+    print(f"  1. 编辑 {os.path.join(target, 'conftest.py')} 里的 JUSTGO_TEST_BASE_URL 为被测系统实际地址")
     print(f"  2. 注册并运行：just-go add <名称> {target}")
     print("     just-go run <名称>")
     return 0
@@ -955,7 +959,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["core", "playwright", "allure", "ffmpeg", "all"],
         default="all",
         help="安装组件：core(框架核心Python依赖)/playwright(浏览器+录制编码器)/"
-        "allure(报告工具，下载到用户目录~/.lets-go/allure)/ffmpeg(桌面录屏，可选)/all(全部，默认)",
+        "allure(报告工具，下载到用户目录~/.just-go/allure)/ffmpeg(桌面录屏，可选)/all(全部，默认)",
     )
     p_install.add_argument(
         "version",

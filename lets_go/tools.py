@@ -59,7 +59,8 @@ class GenerateReport:
             "RequestsVersion": version("requests"),
         }
         # 被测系统地址属于测试项目，由测试项目通过环境变量注入，未配置时省略
-        test_base_url = os.environ.get("LETSGO_TEST_BASE_URL")
+        # 旧名 LETSGO_TEST_BASE_URL 兼容读取
+        test_base_url = os.environ.get("JUSTGO_TEST_BASE_URL") or os.environ.get("LETSGO_TEST_BASE_URL")
         if test_base_url:
             allure_env["OperatingEnvironment"] = test_base_url
         if not os.path.exists(TMP_REPORT_PATH):
@@ -74,9 +75,9 @@ class GenerateReport:
         self.set_report_env()
         if not ALLURE_PATH:
             # allure 工具未安装（外部工具，与框架解耦）：降级为只保留 allure 原始结果
-            print("\n[lets-go] 未找到 allure 工具，跳过 HTML 报告生成。")
-            print(f"[lets-go] allure 原始结果已保留：{TMP_REPORT_PATH}")
-            print("[lets-go] 运行 `lets-go install allure` 安装报告工具后，重新执行测试即可生成 HTML 报告。")
+            print("\n[just-go] 未找到 allure 工具，跳过 HTML 报告生成。")
+            print(f"[just-go] allure 原始结果已保留：{TMP_REPORT_PATH}")
+            print("[just-go] 运行 `just-go install allure` 安装报告工具后，重新执行测试即可生成 HTML 报告。")
             return
         res = subprocess.Popen(
             self.__cmd,
@@ -95,7 +96,8 @@ class GenerateReport:
         level = tags.get("用例级别", "").upper()
         item.add_marker(allure.severity(self.LEVEL_MAP[level]))
         # 禅道用例地址属于测试项目，由测试项目通过环境变量注入，未配置时跳过用例链接
-        test_case_base_url = os.environ.get("LETSGO_TEST_CASE_BASE_URL")
+        # 旧名 LETSGO_TEST_CASE_BASE_URL 兼容读取
+        test_case_base_url = os.environ.get("JUSTGO_TEST_CASE_BASE_URL") or os.environ.get("LETSGO_TEST_CASE_BASE_URL")
         if test_case_base_url:
             item.add_marker(
                 allure.testcase(

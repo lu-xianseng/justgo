@@ -68,7 +68,7 @@ just-go init "SHOP-ALL[all]"               # 两种都生成
 
 ### 3. 配置被测地址
 
-打开测试项目的 `conftest.py`，把 `LETSGO_TEST_BASE_URL` 改成被测系统实际地址。
+打开测试项目的 `conftest.py`，把 `JUSTGO_TEST_BASE_URL` 改成被测系统实际地址。
 
 ### 4. 注册并运行
 
@@ -118,8 +118,8 @@ async def test_login(page):
 
 | 配置项 | 位置 | 说明 |
 | --- | --- | --- |
-| 被测系统地址 | 项目 `conftest.py` 的 `LETSGO_TEST_BASE_URL` | 必改 |
-| 用例链接前缀 | 项目 `conftest.py` 的 `LETSGO_TEST_CASE_BASE_URL` | 可选，报告带用例链接 |
+| 被测系统地址 | 项目 `conftest.py` 的 `JUSTGO_TEST_BASE_URL` | 必改 |
+| 用例链接前缀 | 项目 `conftest.py` 的 `JUSTGO_TEST_CASE_BASE_URL` | 可选，报告带用例链接 |
 | 录屏后端 | 项目 `pytest.ini` 的 `record_backend` | `playwright`（内置，默认）或 `ffmpeg`（桌面录屏） |
 | 慢速 / 无头模式 | 项目 `conftest.py` 里 `config.run.slow_time` 等 | 运行时覆盖，只对本次运行生效 |
 | 产物输出目录 | `just-go run <项目> --output <目录>` | 重定向日志/报告/录屏，适合 CI 归档 |
