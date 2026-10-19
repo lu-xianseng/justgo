@@ -118,7 +118,8 @@ generate_report = GenerateReport()
 
 class Record:
     """
-    录屏管理器，支持两种后端（由 config.ini [run] record_backend 指定）：
+    录屏管理器，支持两种后端（由 config.run.record_backend 指定，
+    可在测试项目 conftest.py 里赋值覆盖，默认值在 config.ini [run] 节）：
     - playwright（默认，轻量）：Playwright 内置录屏产出 webm，无需安装 ffmpeg，
       录制由 page fixture 通过 record_video_dir 控制，视频文件在浏览器关闭后
       由 fixture 写入 record_file；
@@ -126,11 +127,7 @@ class Record:
     """
 
     def __init__(self, framerate=15, source="desktop", out_type="mp4"):
-        self.__backend = getattr(config.run, "record_backend", "playwright")
-        if self.__backend not in ["playwright", "ffmpeg"]:
-            raise ValueError("record_backend 仅支持 playwright 或 ffmpeg")
-        # ffmpeg 延迟到 start() 时检查：仅启用 ffmpeg 后端录屏才需要，
-        # 避免无 ffmpeg 环境下框架无法导入
+        # 后端不在此固化：每次使用时实时读取，支持项目 conftest 运行时覆盖
         self.__exe = None
         if out_type not in ["webm", "mp4"]:
             raise ValueError("out_type must be webm or mp4")
@@ -144,14 +141,21 @@ class Record:
         self.__record_file = None
         self.__recording = False
 
+    def _backend(self) -> str:
+        """实时读取录屏后端（支持测试项目 conftest 里 config.run.record_backend 覆盖）"""
+        backend = getattr(config.run, "record_backend", "playwright")
+        if backend not in ["playwright", "ffmpeg"]:
+            raise ValueError("record_backend 仅支持 playwright 或 ffmpeg")
+        return backend
+
     @property
     def backend(self) -> str:
-        return self.__backend
+        return self._backend()
 
     @property
     def attachment_type(self):
         """allure 附件类型：playwright 产出 webm，ffmpeg 产出 mp4/webm"""
-        if self.__backend == "playwright":
+        if self._backend() == "playwright":
             return allure.attachment_type.WEBM
         return allure.attachment_type.MP4
 
@@ -216,7 +220,7 @@ class Record:
 
     def start(self, path):
         """启动录屏"""
-        if self.__backend == "playwright":
+        if self._backend() == "playwright":
             # playwright 后端：页面录制由 page fixture 的 record_video_dir 控制，
             # 这里仅记录开始状态
             self.__recording = True
@@ -240,7 +244,7 @@ class Record:
 
     def stop(self):
         """停止录屏"""
-        if self.__backend == "playwright":
+        if self._backend() == "playwright":
             # playwright 后端：视频由浏览器关闭时自动 finalize，此处仅复位状态
             self.__recording = False
             return
@@ -278,7 +282,7 @@ class Record:
     @property
     def record_file(self):
         """获取录屏文件"""
-        if self.__backend == "playwright":
+        if self._backend() == "playwright":
             # playwright 后端：由 page fixture 在浏览器关闭后设置
             if self.__record_file and os.path.exists(self.__record_file):
                 return self.__record_file

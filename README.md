@@ -42,12 +42,14 @@ lets-go install ffmpeg      # 桌面录屏用，可选
 ## 新建测试项目
 
 ```bash
-lets-go init SHOP-TEST
+lets-go init SHOP-TEST              # 默认 GUI 骨架（页面对象 + 页面用例）
+lets-go init "SHOP-API[api]"        # API 骨架（接口封装 + 接口用例）
+lets-go init "SHOP-ALL[all]"        # 两种都生成
 ```
 
-会在当前目录下生成一个 `SHOP-TEST` 项目（想放别处就写绝对路径，比如 `lets-go init D:\ProjectCode\SHOP-TEST`，项目名取目录名）。目录已存在且不为空时会拒绝。
+会在当前目录下生成对应项目（想放别处就写绝对路径，比如 `lets-go init D:\ProjectCode\SHOP-TEST`，项目名取目录名）。目录已存在且不为空时会拒绝。
 
-生成的是空骨架：`cases/module/`、`pages/module_page/`、`tag/module.csv`、`conftest.py`、`pytest.ini` 和一份开发指南。文件里只留了说明注释，页面类、用例函数这些都要自己填。先看项目里那份 `README.md`，按里面的步骤写页面对象和用例。
+生成的是空骨架：GUI 类型有 `cases/module/`、`pages/module_page/`、`tag/module.csv`；API 类型有 `apis/module/`、`cases/api/`、`tag/api.csv`；加上 `conftest.py`、`pytest.ini` 和一份开发指南。文件里只留了说明注释，页面类、接口方法、用例函数这些都要自己填。先看项目里那份 `README.md`，按里面的步骤写。
 
 写用例之前，先打开 `conftest.py`，把 `LETSGO_TEST_BASE_URL` 改成被测系统的实际地址。
 
@@ -99,13 +101,14 @@ lets-go run shop --output D:\lets-go-output
 
 **被测系统地址**：改测试项目 `conftest.py` 里的 `LETSGO_TEST_BASE_URL`。有测试管理平台的话，可以再配 `LETSGO_TEST_CASE_BASE_URL` 让报告里带上用例链接。
 
-**框架配置**：在框架的 `configs/config.ini` 里，只放框架自己的项（浏览器路径、慢速等待、录屏方式这些）。想改某个值，直接在测试项目 `conftest.py` 里赋值，只对这次运行生效，优先级更高：
+**框架运行配置**：在测试项目 `conftest.py` 里赋值，只对这次运行生效：
 
 ```python
 from lets_go import config
 
 config.run.slow_time = 1000          # 操作间隔毫秒
 config.run.show_browser = False      # 无头模式
+config.run.record_backend = "ffmpeg" # 桌面录屏（需安装 ffmpeg）；默认 playwright 内置录屏
 ```
 
 ## 用例写法
@@ -144,9 +147,10 @@ tag/module.csv:
 
 ## 录屏
 
-默认开着，用 Playwright 内置录屏，跑完自动把 webm 附到报告里。不想录屏，把 `pytest.ini` 里的 `--record=yes` 删掉。想用桌面录屏（需要 ffmpeg），改框架配置：
+默认开着，用 Playwright 内置录屏，跑完自动把 webm 附到报告里。不想录屏，把 `pytest.ini` 里的 `--record=yes` 删掉。想用桌面录屏（需要安装 ffmpeg），在测试项目 `conftest.py` 里配：
 
-```ini
-[run]
-record_backend = ffmpeg
+```python
+from lets_go import config
+
+config.run.record_backend = "ffmpeg"
 ```

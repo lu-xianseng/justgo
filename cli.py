@@ -7,7 +7,7 @@ lets-go 命令行入口。
 
 用法：
     lets-go add <名称> <测试项目路径>    注册一个测试项目
-    lets-go init <项目目录>             初始化一个 PO 模式的测试项目骨架
+    lets-go init <项目目录[类型]>        初始化测试项目骨架（类型可选 api/gui/all，默认 gui，如 "shop-test[all]"）
     lets-go list                         列出已注册项目
     lets-go remove <名称>                取消注册
     lets-go run <名称|路径> [pytest参数] 执行指定测试项目的自动化测试
@@ -409,11 +409,15 @@ def cmd_install(args) -> int:
 
 
 # ---------------------------------------------------------------------------
-# lets-go init：初始化一个 PO 模式的测试项目骨架
-# 生成：cases(用例) / pages(页面对象) / tag(标记，可选) + conftest/pytest.ini/README
+# lets-go init：初始化测试项目骨架
+# 支持类型后缀 [api|gui|all]（默认 gui）：
+#   gui -> cases(页面用例) / pages(页面对象) / tag
+#   api -> cases(接口用例) / apis(接口封装) / tag
+#   all -> 以上全部
 # 模板文件全部内联于此，保证打包后 init 命令零依赖可用。
 # ---------------------------------------------------------------------------
-INIT_TEMPLATES = {
+# 公共模板：所有类型（gui/api/all）都生成
+COMMON_TEMPLATES = {
     "conftest.py": '''#!/usr/bin/env python3
 # coding=utf-8
 """测试项目根 conftest：让 lets-go 框架插件生效，并向框架注入本项目配置。
@@ -421,13 +425,22 @@ INIT_TEMPLATES = {
 必改项（按你的项目填写）：
 - LETSGO_TEST_BASE_URL：被测系统实际地址（写入报告环境信息；页面对象跳转时也读取它）
 - LETSGO_TEST_CASE_BASE_URL：测试管理平台（如禅道）用例链接前缀，写入报告用例链接（可选）
+
+可选配置（在项目里改，不用动框架）：
+- 录屏后端：config.run.record_backend = "playwright"（内置录屏，默认）或 "ffmpeg"（桌面录屏，需 lets-go install ffmpeg）
+- 其他框架配置项同理：config.run.slow_time、config.run.show_browser 等
 """
 import os
+
+from lets_go import config
 
 # TODO: 填写被测系统的实际地址，例如 http://192.168.1.10:8080
 os.environ.setdefault("LETSGO_TEST_BASE_URL", "")
 # TODO: 可选，例如 https://zentao.example.com/case-view-{id}.html
 os.environ.setdefault("LETSGO_TEST_CASE_BASE_URL", "")
+
+# 示例：改用桌面录屏（需安装 ffmpeg）
+# config.run.record_backend = "ffmpeg"
 
 pytest_plugins = ["lets_go.plugin"]
 ''',
@@ -465,6 +478,66 @@ python_functions = test_*
 #       def open_page(self, page, path=""):
 #           ...
 ''',
+    "README.md": '''# {name} 自动化测试项目
+
+基于 lets-go 框架的测试项目骨架（类型：{mode_label}）。
+
+> **骨架说明**：本命令生成的是**空白脚手架**——目录结构、配置、开发指南都在，
+> 但所有代码文件的类名、方法名、业务逻辑留空，由你按本指南自行填充。
+> 填充后即可运行；未填充时 `pytest --collect-only` 收集到 0 个用例属正常现象。
+
+> 说明：框架约定标记目录名为 `tag`（单数），位于项目根；项目没有 `tag/` 目录时
+> 不启用 tag 机制，用例不校验、不筛选，全部直接执行。
+
+{sections}
+
+## 运行
+
+```bash
+# 首次：注册项目（把 <名称> 换成你的项目名）
+lets-go add <名称> .
+
+# 执行全部用例
+lets-go run <名称>
+
+# 只收集不执行（快速验证骨架）
+lets-go run <名称> --collect-only
+
+# 带 tag 筛选
+lets-go run <名称> --tag "smoke and L1"
+```
+
+或直接在项目根敲 pytest（conftest 已声明框架插件）：
+
+```bash
+pytest
+```
+
+## 配置
+
+| 配置项 | 位置 | 说明 |
+| --- | --- | --- |
+| 被测系统地址 | conftest.py 的 LETSGO_TEST_BASE_URL | 必改，页面跳转基址 + 报告环境信息 |
+| 用例链接前缀 | conftest.py 的 LETSGO_TEST_CASE_BASE_URL | 可选 |
+| 录屏开关 | pytest.ini 的 --record | 默认开；删掉该行即关闭 |
+| 录屏后端 | conftest.py 里 config.run.record_backend | 默认 playwright（内置录屏）；改 ffmpeg 需安装 ffmpeg |
+| 慢速/是否显示浏览器 | conftest.py 里 config.run.xxx | 运行时覆盖，优先级高于框架配置文件 |
+
+## 运行产物
+
+默认输出到项目根下：`logs/`（日志）、`reports/`（allure 报告）、`cache/`（临时/截图/录屏）。
+可重定向：`lets-go run <名称> --output D:\\产物目录`。
+
+## 依赖
+
+框架依赖由 lets-go 管理：`lets-go install`（core/playwright/allure/ffmpeg 可选）。
+测试项目自身的 Python 依赖（如 redis、pymysql）由项目自行安装到运行环境。
+''',
+}
+
+
+# GUI 模板：页面对象 + 页面用例（gui/all 类型生成）
+GUI_TEMPLATES = {
     "cases/module/test_xxx.py": '''#!/usr/bin/env python3
 # coding=utf-8
 """用例文件（cases/<模块>/test_<模块>_<用例ID>.py）
@@ -504,7 +577,7 @@ python_functions = test_*
 # 在这里导出你的页面对象，例如：
 #   from pages.base_page import BasePage
 #   from pages.module_page.page import ModulePage
-#   __all__ = ["BasePage", "HomePage"]
+#   __all__ = ["BasePage", "ModulePage"]
 ''',
     "pages/base_page.py": '''#!/usr/bin/env python3
 # coding=utf-8
@@ -558,11 +631,74 @@ python_functions = test_*
 ''',
     "tag/module.csv": '''脚本ID,用例ID,用例级别,场景,跳过原因,废弃,其它
 ''',
-    "README.md": '''# {name} 自动化测试项目
+}
 
-基于 lets-go 框架、遵循 **PO（Page Object）模式** 的 Web 自动化测试项目骨架。
 
-## 目录结构
+# API 模板：接口封装 + 接口用例（api/all 类型生成）
+API_TEMPLATES = {
+    "apis/__init__.py": '''#!/usr/bin/env python3
+# coding=utf-8
+"""接口封装统一出口（apis/__init__.py）
+
+新增接口封装后，在这里集中导出，用例统一从 apis 导入：
+    from apis import module_api
+"""
+
+# 在这里导出你的接口封装，例如：
+#   from apis.module import api as module_api
+#   __all__ = ["module_api"]
+''',
+    "apis/module/api.py": '''#!/usr/bin/env python3
+# coding=utf-8
+"""接口封装（apis/<模块>/api.py）
+
+职责：把被测系统的接口按模块封装成方法，供用例调用。
+一个接口一个方法：请求地址 + 参数 + 返回业务结果给用例断言。
+接口基址用 conftest 注入的 LETSGO_TEST_BASE_URL，未配时为空。
+
+写法参考项目 README「API 用例怎么开发」。
+"""
+
+# 在这里封装你的接口，例如：
+#   import os
+#   import requests  # 需要先安装：pip install requests
+#
+#   BASE = os.environ.get("LETSGO_TEST_BASE_URL", "")
+#
+#   def login(username, password):
+#       resp = requests.post(f"{BASE}/api/login", json={"username": username, "password": password})
+#       return resp.json()
+''',
+    "cases/api/test_xxx.py": '''#!/usr/bin/env python3
+# coding=utf-8
+"""API 用例文件（cases/api/test_<模块>_<用例ID>.py）
+
+约定：
+- 文件名：test_<模块>_<用例ID>.py，例如 test_login_1001.py（本文件为占位骨架，请重命名）
+- 用例函数名：test_<模块>_<用例ID>，用例ID 与 tag/<模块>/<模块名>.csv 里的 用例ID 对应
+- API 用例直接调接口封装方法，不需要 page fixture
+
+开发步骤（详见项目 README）：
+1. 接口封装写在 apis/<模块>/api.py，并在 apis/__init__.py 导出；
+2. 用例 import 接口方法，调接口 + 断言；
+3. 需要 tag 管理时，在 tag/<模块>/<模块名>.csv 登记该用例。
+"""
+
+# 在这里写你的用例，例如：
+#   from apis.module import api as module_api
+#
+#   def test_login_1001():
+#       data = module_api.login("admin", "123456")
+#       assert data["code"] == 0
+''',
+    "tag/api.csv": '''脚本ID,用例ID,用例级别,场景,跳过原因,废弃,其它
+''',
+}
+
+
+# GUI 开发指南段落（嵌入项目 README）
+GUI_SECTION = '''
+## 目录结构（GUI）
 
 ```
 {name}/
@@ -581,13 +717,6 @@ python_functions = test_*
    └─ module.csv          # 一个模块目录一个 CSV，登记该目录下所有用例
 ```
 
-> **骨架说明**：本命令生成的是**空白脚手架**——目录结构、配置、开发指南都在，
-> 但所有代码文件的类名、方法名、业务逻辑留空，由你按 README 三步走自行填充。
-> 填充后即可运行；未填充时 `pytest --collect-only` 收集到 0 个用例属正常现象。
-
-> 说明：框架约定标记目录名为 `tag`（单数），位于项目根；项目没有 `tag/` 目录时
-> 不启用 tag 机制，用例不校验、不筛选，全部直接执行。
-
 ## 核心思路：基类下沉公共逻辑，页面/用例只写业务
 
 自动化开发大量代码是重复的（输入、点击、等待、打开页面、实例化对象……）。
@@ -598,7 +727,7 @@ python_functions = test_*
 | `BasePage` | pages/base_page.py | 通用元素操作（fill/click/wait_visible/get_text/is_visible）、常用按钮（确认/取消/保存） |
 | `BaseCase` | cases/base_case.py | 用例公共样板（实例化页面对象、打开页面 open_page），后续可加登录/数据准备等 |
 
-## 怎么开发自动化用例（PO 模式三步走）
+## 怎么开发 GUI 用例（三步走）
 
 ### 1. 写页面对象（pages/）
 继承 `BasePage`，通用操作直接用，**只写业务**（定位器 + 业务操作组合）：
@@ -653,78 +782,118 @@ class TestModule(BaseCase):
 - `page` 是框架提供的 fixture（Playwright 页面）：同步用例直接调用，
   异步用例 `async def test_xxx(page)` 用 `await page.xxx()`，两种写法都支持；
 - 通用能力按需在 `BasePage`/`BaseCase` 扩展（如公共登录、表格操作），页面和用例保持只写业务。
+'''
 
-### 3. 登记 tag（可选）
-启用 tag 机制后，用例必须先在 `tag/` 中登记，否则运行会提示"缺少tag信息"。
-**一个模块目录对应一个 CSV**（文件名 = 模块目录名），登记该目录下所有用例：
+
+# API 开发指南段落（嵌入项目 README）
+API_SECTION = '''
+## 目录结构（API）
 
 ```
-tag/module.csv:
+{name}/
+├─ conftest.py            # 项目根配置：声明框架插件 + 注入被测地址（必改）
+├─ pytest.ini             # pytest 配置：收集规则
+├─ apis/                  # 接口封装（一个模块一个文件，把接口封装成方法）
+│  ├─ __init__.py         # 统一出口：接口封装在此导出，用例从 apis 导入
+│  └─ module/
+│     └─ api.py           # 接口占位文件：按模块封装接口方法
+├─ cases/                 # 测试用例
+│  ├─ base_case.py        # 用例基类（API 用例通常用不到，保留备用）
+│  └─ api/
+│     └─ test_xxx.py      # 用例占位文件：按命名约定重命名并填充
+└─ tag/                   # 用例标记（可选：tag 机制启用后支持 --tag 筛选）
+   └─ api.csv             # 一个模块目录一个 CSV，登记该目录下所有用例
+```
+
+## 怎么开发 API 用例
+
+### 1. 封装接口（apis/）
+把被测系统的接口按模块封装成方法，一个接口一个方法，返回业务结果给用例断言：
+
+```python
+import os
+import requests  # 需要先安装：pip install requests
+
+BASE = os.environ.get("LETSGO_TEST_BASE_URL", "")
+
+def login(username, password):
+    resp = requests.post(f"{BASE}/api/login", json={"username": username, "password": password})
+    return resp.json()
+```
+
+写完后在 `apis/__init__.py` 统一导出（新增模块也这样做）。
+
+### 2. 写用例（cases/api/）
+API 用例不需要 page fixture，直接调接口方法 + 断言：
+
+```python
+from apis.module import api as module_api
+
+def test_login_1001():
+    data = module_api.login("admin", "123456")
+    assert data["code"] == 0
+```
+
+约定：用例函数名 `test_<模块>_<用例ID>`，用例ID 与 tag CSV 中的 用例ID 对应。
+
+### 3. 登记 tag（可选）
+和 GUI 一样，在 `tag/<模块>/<模块名>.csv` 登记该用例：
+
+```
 脚本ID,用例ID,用例级别,场景,跳过原因,废弃,其它
-1001,1001,L1,模块搜索,,,
+1001,1001,L1,登录接口,,,
 ```
 
 - 脚本ID 必须等于 用例ID（框架校验）；
-- 运行时可筛选：`lets-go run <项目> --tag "L1 and 模块"`；
+- 运行时可筛选：`lets-go run <项目> --tag "L1 and 登录"`；
 - 不想用 tag：删掉 `tag/` 目录即可，用例直接全部执行。
-
-## 运行
-
-```bash
-# 首次：注册项目（把 <名称> 换成你的项目名）
-lets-go add <名称> .
-
-# 执行全部用例
-lets-go run <名称>
-
-# 只收集不执行（快速验证骨架）
-lets-go run <名称> --collect-only
-
-# 带 tag 筛选
-lets-go run <名称> --tag "smoke and L1"
-```
-
-或直接在项目根敲 pytest（conftest 已声明框架插件）：
-
-```bash
-pytest
-```
-
-## 配置
-
-| 配置项 | 位置 | 说明 |
-| --- | --- | --- |
-| 被测系统地址 | conftest.py 的 LETSGO_TEST_BASE_URL | 必改，页面跳转基址 + 报告环境信息 |
-| 用例链接前缀 | conftest.py 的 LETSGO_TEST_CASE_BASE_URL | 可选 |
-| 录屏开关 | pytest.ini 的 --record | 默认开；删掉该行即关闭 |
-| 慢速/是否显示浏览器 | 框架 configs/config.ini 的 [run] 节 | 全局生效 |
-
-## 运行产物
-
-默认输出到项目根下：`logs/`（日志）、`reports/`（allure 报告）、`cache/`（临时/截图/录屏）。
-可重定向：`lets-go run <名称> --output D:\\产物目录`。
-
-## 依赖
-
-框架依赖由 lets-go 管理：`lets-go install`（core/playwright/allure/ffmpeg 可选）。
-测试项目自身的 Python 依赖（如 redis、pymysql）由项目自行安装到运行环境。
-''',
-}
+'''
 
 
 def cmd_init(args) -> int:
-    """初始化测试项目骨架：目标目录不存在则创建（区别于 add 要求目录已存在）"""
-    target = os.path.abspath(os.path.expanduser(args.target))
+    """初始化测试项目骨架：目标目录不存在则创建（区别于 add 要求目录已存在）
+
+    支持类型后缀 [api|gui|all]，如 lets-go init "shop-test[all]"，默认 gui：
+    - gui：生成页面对象 + 页面用例（pages/、cases/module/、tag/module.csv）
+    - api：生成接口封装 + 接口用例（apis/、cases/api/、tag/api.csv）
+    - all：两套都生成
+    """
+    m = re.match(r"^(?P<name>.+)\[(?P<mode>api|gui|all)\]$", args.target)
+    if m:
+        name_part, mode = m.group("name"), m.group("mode")
+    else:
+        name_part, mode = args.target, "gui"
+    target = os.path.abspath(os.path.expanduser(name_part))
     if os.path.exists(target) and os.listdir(target):
         raise SystemExit(f"错误：目录已存在且非空，请选择新目录：{target}")
     os.makedirs(target, exist_ok=True)
-    for rel, content in INIT_TEMPLATES.items():
+
+    templates = dict(COMMON_TEMPLATES)
+    if mode in ("gui", "all"):
+        templates.update(GUI_TEMPLATES)
+    if mode in ("api", "all"):
+        templates.update(API_TEMPLATES)
+
+    base_name = os.path.basename(target)
+    mode_label = {"gui": "GUI", "api": "API", "all": "GUI + API"}[mode]
+    sections = ""
+    if mode in ("gui", "all"):
+        sections += GUI_SECTION
+    if mode in ("api", "all"):
+        sections += API_SECTION
+
+    for rel, content in templates.items():
         path = os.path.join(target, rel)
         os.makedirs(os.path.dirname(path), exist_ok=True)
+        content = (
+            content.replace("{name}", base_name)
+            .replace("{mode_label}", mode_label)
+            .replace("{sections}", sections)
+        )
         with open(path, "w", encoding="utf-8", newline="\n") as f:
-            f.write(content.replace("{name}", os.path.basename(target)))
-    print(f"已在 {target} 创建测试项目骨架：")
-    for rel in INIT_TEMPLATES:
+            f.write(content)
+    print(f"已在 {target} 创建测试项目骨架（类型：{mode}）：")
+    for rel in templates:
         print(f"  {os.path.join(target, rel)}")
     print("\n下一步：")
     print(f"  1. 编辑 {os.path.join(target, 'conftest.py')} 里的 LETSGO_TEST_BASE_URL 为被测系统实际地址")
@@ -767,11 +936,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.set_defaults(func=cmd_run)
 
     p_init = sub.add_parser(
-        "init", help="初始化一个 PO 模式的测试项目骨架（含示例用例/页面对象/tag）"
+        "init", help="初始化测试项目骨架（默认 gui；支持 [api|gui|all] 类型后缀）"
     )
     p_init.add_argument(
         "target",
-        help="项目目录名或路径（不存在则创建），如：lets-go init SHOP-TEST",
+        help="项目目录名或路径，可带类型后缀 [api|gui|all]（默认 gui），如："
+        'lets-go init "shop-test[all]"（gui=页面对象用例，api=接口封装用例，all=两者都有）',
     )
     p_init.set_defaults(func=cmd_init)
 
