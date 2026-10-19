@@ -354,7 +354,17 @@ def _install_ffmpeg() -> int:
         ]
         print("  未检测到 ffmpeg，尝试 winget 安装：")
         print(f"    {' '.join(cmd)}")
-        return subprocess.call(cmd)
+        rc = subprocess.call(cmd)
+        if rc == 0:
+            exe = shutil.which("ffmpeg")
+            if not exe:
+                print("  安装完成但当前终端尚未刷新 PATH，请新开终端后重新运行本命令")
+                return 1
+            print(f"  [OK] ffmpeg：{exe}")
+            return 0
+        print(f"  winget 安装未完成（退出码 {rc}），可稍后重试或手动安装：")
+        print("    下载 https://www.gyan.dev/ffmpeg/builds/ 的 release 版 zip，解压后把 bin 目录加入 PATH")
+        return 1
     print("  未检测到 ffmpeg 且系统无 winget，请手动安装：")
     print("    下载 https://www.gyan.dev/ffmpeg/builds/ 的 release 版 zip，解压后把 bin 目录加入 PATH")
     return 1
