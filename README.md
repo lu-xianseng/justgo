@@ -18,11 +18,13 @@ lets-go/
 │   ├── logger.py / tag_manage.py / parse_tag.py / tools.py
 │   ├── mock.py / mock_data.py / exceptions.py
 │   └── configs/config.ini   # 框架配置（仅浏览器、目录、allure 路径等框架项）
-├── tools/allure/       # allure 报告工具
 ├── lets-go.bat         # Windows 命令入口
 ├── pyproject.toml      # 可 pip/pipenv 安装（安装后获得 lets-go 命令）
 └── Pipfile             # pipenv 依赖清单
 ```
+
+> allure 报告工具**不随框架打包**（外部工具、版本独立演进）：由
+> `lets-go install allure` 下载安装到用户目录 `~/.lets-go/allure/`，框架自动发现。
 
 ## 安装
 
@@ -48,7 +50,7 @@ lets-go install
 # 或分组件安装
 lets-go install core         # 框架核心 Python 依赖（pytest/allure-pytest/playwright 等）
 lets-go install playwright   # Playwright 浏览器 chromium + 录制编码器 ffmpeg（webm 录屏必需）
-lets-go install allure       # 检查报告工具：Java + allure CLI（生成 HTML 报告）
+lets-go install allure       # 下载安装 allure 报告工具到 ~/.lets-go/allure（生成 HTML 报告；可指定版本，见下）
 lets-go install ffmpeg       # 系统 ffmpeg（仅桌面录屏后端 record_backend=ffmpeg 需要，可选）
 ```
 
@@ -59,8 +61,13 @@ lets-go install ffmpeg       # 系统 ffmpeg（仅桌面录屏后端 record_back
 - 框架只管理自身依赖，**测试项目自己的第三方包由项目自行安装**
   （`cd <框架目录>` 后 `pipenv install <包>`，装进同一共享环境）；
 - 浏览器与框架 playwright 库版本自动匹配，无需手动对齐；
-- 不装 allure/ffmpeg 不影响用例执行与 allure 原始结果（录屏 webm 照常产出），仅影响
-  HTML 报告生成与桌面录屏。
+- **allure 工具与框架解耦**：不随框架打包，由 `lets-go install allure` 下载到用户目录
+  `~/.lets-go/allure/`（默认锁定版本 2.24.1，可指定版本 `lets-go install allure 2.30.0` 随时升级/降级）；
+  需要 Java（缺失时命令会给出安装指引）。框架按以下优先级定位 allure：
+  ① config.ini `allure_path` 填写的路径（绝对路径直接用，相对路径基于框架根解析）
+  ② 留空时自动查找：PATH 上的 `allure` 命令，其次 `~/.lets-go/allure/*/bin`（多版本取最新）；
+- 不装 allure 不影响用例执行与 allure 原始结果（录屏 webm 照常产出），仅跳过 HTML 报告生成
+  （运行结束会提示 `lets-go install allure`）；不装 ffmpeg 仅影响桌面录屏后端。
 
 ## 使用
 

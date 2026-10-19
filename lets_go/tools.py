@@ -73,6 +73,12 @@ class GenerateReport:
 
     def run(self):
         self.set_report_env()
+        if not ALLURE_PATH:
+            # allure 工具未安装（外部工具，与框架解耦）：降级为只保留 allure 原始结果
+            print("\n[lets-go] 未找到 allure 工具，跳过 HTML 报告生成。")
+            print(f"[lets-go] allure 原始结果已保留：{TMP_REPORT_PATH}")
+            print("[lets-go] 运行 `lets-go install allure` 安装报告工具后，重新执行测试即可生成 HTML 报告。")
+            return
         res = subprocess.Popen(
             self.__cmd,
             stdout=subprocess.PIPE,

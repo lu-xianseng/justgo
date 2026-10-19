@@ -3,6 +3,7 @@
 # @Time     :2025/8/21 17:30
 # @Author   :luye
 import os
+import shutil
 from configparser import ConfigParser
 from typing import Optional, Dict, Any
 
@@ -83,7 +84,7 @@ config_path = os.path.join(
 config_parser.read(filenames=config_path, encoding="utf-8")
 config = ConfigWrapper(config_parser)
 
-# 框架根目录：lets_go 包所在项目的上级（tools/allure 等框架资源随框架走）
+# 框架根目录：lets_go 包所在项目的上级（相对路径形式的框架配置基于此解析）
 FRAMEWORK_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # 测试项目根目录：运行时通过 CLI 指定（环境变量 LETSGO_PROJECT_ROOT 优先，否则取当前工作目录）
@@ -107,10 +108,36 @@ LOG_PATH = os.path.join(OUTPUT_BASE, config.framework.log_path)
 TMP_REPORT_PATH = os.path.join(OUTPUT_BASE, config.framework.cache_path, "report")
 REPORT_PATH = os.path.join(OUTPUT_BASE, config.framework.report_path)
 
-# allure 工具随框架安装位置走：相对路径基于框架根解析，绝对路径直接使用
-_allure_path = config.framework.allure_path
-ALLURE_PATH = (
-    _allure_path
-    if os.path.isabs(_allure_path)
-    else os.path.join(FRAMEWORK_ROOT, _allure_path)
-)
+# allure 工具解析优先级：
+# 1) config.framework.allure_path 为绝对路径 → 直接使用；
+# 2) 为相对路径 → 基于框架根解析（兼容旧版随框架内置的配置）；
+# 3) 留空 → 自动查找：PATH 上的 allure 命令，其次用户目录 ~/.lets-go/allure/*/bin
+#    （lets-go install allure 的安装位置）。都找不到时返回空串，报告生成降级跳过。
+def _resolve_allure_path() -> str:
+    import glob
+
+    _configured = (config.framework.allure_path or "").strip()
+    if _configured:
+        candidate = (
+            _configured
+            if os.path.isabs(_configured)
+            else os.path.join(FRAMEWORK_ROOT, _configured)
+        )
+        if os.path.exists(candidate):
+            return candidate
+
+    # 自动查找：PATH 上的 allure 命令
+    found = shutil.which("allure")
+    if found:
+        return found
+
+    # 用户目录安装（lets-go install allure 的安装位置），多版本并存时取排序最新
+    user_allure_dir = os.path.join(os.path.expanduser("~"), ".lets-go", "allure")
+    exe_name = "allure.bat" if os.name == "nt" else "allure"
+    hits = sorted(glob.glob(os.path.join(user_allure_dir, "*", "bin", exe_name)))
+    if hits:
+        return hits[-1]
+    return ""
+
+
+ALLURE_PATH = _resolve_allure_path()

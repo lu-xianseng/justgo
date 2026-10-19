@@ -256,31 +256,69 @@ def _install_playwright() -> int:
     return rc
 
 
-def _install_allure() -> int:
-    """检查/指引 allure 报告工具（生成 HTML 报告需要 Java + allure CLI）"""
-    print("==> 检查 allure 报告工具")
-    ok = True
+# 默认锁定的 allure 版本（已验证可用）；版本与框架解耦，用户可随时升级/降级
+DEFAULT_ALLURE_VERSION = "2.24.1"
+
+
+def _install_allure(version: str = None) -> int:
+    """下载安装 allure 报告工具到用户目录 ~/.lets-go/allure（版本与框架解耦）
+
+    安装位置会被 settings 的自动查找逻辑识别（config.ini allure_path 留空即可）。
+    需要 Java（allure 为 Java 工具）；可指定版本：lets-go install allure 2.30.0
+    """
+    ver = version or DEFAULT_ALLURE_VERSION
+    print(f"==> 安装 allure 报告工具（版本 {ver}，安装到用户目录，与框架解耦）")
     java = shutil.which("java")
     if not java:
-        ok = False
         print("  [缺失] Java 运行时（allure 生成 HTML 报告必需）")
         print("    安装：winget install EclipseAdoptium.Temurin.17.JDK")
         print("    或手动下载 https://adoptium.net/ 并确保 java 在 PATH")
-    else:
-        print(f"  [OK] Java：{java}")
-    allure_bat = os.path.join(FRAMEWORK_ROOT, "tools", "allure", "bin", "allure.bat")
-    if not os.path.exists(allure_bat):
-        ok = False
-        print(f"  [缺失] allure CLI：{allure_bat}")
-        print("    下载 allure-commandline 并解压到 tools/allure：")
-        print("    https://github.com/allure-framework/allure2/releases （allure-commandline-*.zip）")
-    else:
-        print(f"  [OK] allure CLI：{allure_bat}")
-    if ok:
-        print("  allure 报告工具已就绪")
-    else:
-        print("  按上方指引补装后即可生成 HTML 报告；不装不影响用例执行与 allure 原始结果")
-    return 0 if ok else 1
+        print("    装好 Java 后重新运行：lets-go install allure")
+        return 1
+    print(f"  [OK] Java：{java}")
+
+    install_dir = os.path.join(os.path.expanduser("~"), ".lets-go", "allure")
+    exe_name = "allure.bat" if os.name == "nt" else "allure"
+    allure_exe = os.path.join(install_dir, f"allure-{ver}", "bin", exe_name)
+    if os.path.exists(allure_exe):
+        print(f"  [OK] allure {ver} 已安装：{allure_exe}")
+        print("      框架自动发现：config.ini 的 allure_path 留空即可")
+        return 0
+
+    url = f"https://github.com/allure-framework/allure2/releases/download/{ver}/allure-{ver}.zip"
+    print(f"  下载 {url}")
+    os.makedirs(install_dir, exist_ok=True)
+    zip_path = os.path.join(install_dir, f"allure-{ver}.zip")
+    try:
+        import urllib.request
+
+        req = urllib.request.Request(url, headers={"User-Agent": "lets-go-installer"})
+        with urllib.request.urlopen(req, timeout=120) as resp, open(zip_path, "wb") as f:
+            shutil.copyfileobj(resp, f)
+    except Exception as e:
+        print(f"  [失败] 下载失败：{e}")
+        print(f"    可手动下载该 zip 并解压到：{install_dir}")
+        print(f"    要求解压后目录为 allure-{ver}，内含 bin/{exe_name}")
+        return 1
+
+    try:
+        import zipfile
+
+        with zipfile.ZipFile(zip_path) as zf:
+            zf.extractall(install_dir)
+    except Exception as e:
+        print(f"  [失败] 解压失败：{e}")
+        return 1
+    finally:
+        if os.path.exists(zip_path):
+            os.remove(zip_path)
+
+    if not os.path.exists(allure_exe):
+        print(f"  [失败] 解压后未找到 {allure_exe}，请检查下载完整性")
+        return 1
+    print(f"  [OK] allure {ver} 已安装：{allure_exe}")
+    print("      框架自动发现：config.ini 的 allure_path 留空即可")
+    return 0
 
 
 def _install_ffmpeg() -> int:
@@ -306,16 +344,17 @@ def _install_ffmpeg() -> int:
 
 def cmd_install(args) -> int:
     comp = args.component or "all"
+    version = getattr(args, "version", None)
     steps = {
         "all": [
             ("all", _install_all_py),
             ("playwright", _install_playwright),
-            ("allure", _install_allure),
+            ("allure", lambda: _install_allure(version)),
             ("ffmpeg", _install_ffmpeg),
         ],
         "core": [("core", _install_core)],
         "playwright": [("playwright", _install_playwright)],
-        "allure": [("allure", _install_allure)],
+        "allure": [("allure", lambda: _install_allure(version))],
         "ffmpeg": [("ffmpeg", _install_ffmpeg)],
     }
     for name, fn in steps[comp]:
@@ -365,7 +404,13 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["core", "playwright", "allure", "ffmpeg", "all"],
         default="all",
         help="安装组件：core(框架核心Python依赖)/playwright(浏览器+录制编码器)/"
-        "allure(报告工具)/ffmpeg(桌面录屏，可选)/all(全部，默认)",
+        "allure(报告工具，下载到用户目录~/.lets-go/allure)/ffmpeg(桌面录屏，可选)/all(全部，默认)",
+    )
+    p_install.add_argument(
+        "version",
+        nargs="?",
+        default=None,
+        help="仅用于 allure：指定安装版本（如 2.30.0），默认安装锁定版本",
     )
     p_install.set_defaults(func=cmd_install)
 
