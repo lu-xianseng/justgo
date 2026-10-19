@@ -165,5 +165,34 @@ record_backend = ffmpeg
   `LETSGO_TEST_BASE_URL`（allure 报告环境信息）、`LETSGO_TEST_CASE_BASE_URL`（allure 用例链接），
   未配置时框架自动跳过对应项。
 
+## 用例写法：同步 / 异步（协程）两种都支持
+
+框架的 `page` fixture 会按用例写法自动选择 Playwright 驱动，同一项目可混用：
+
+* **同步（默认，原有方式）**：`def test_xxx(page)`，page 为 `playwright.sync_api` 页面，
+  直接调用 `page.goto(...)` 等：
+
+  ```python
+  def test_login(page):
+      page.goto("https://example.com")
+      page.fill("#user", "admin")
+  ```
+
+* **异步（协程方式）**：`async def test_xxx(page)`，page 为 `playwright.async_api` 页面，
+  用 `await page.xxx()` 调用。**无需安装 pytest-asyncio**，框架插件自动在事件循环中执行：
+
+  ```python
+  async def test_login(page):
+      await page.goto("https://example.com")
+      await page.fill("#user", "admin")
+      assert "登录成功" in await page.content()
+  ```
+
+注意事项：
+
+* 异步用例内所有 Playwright 方法都要 `await`（goto/fill/click/content/screenshot 等）；
+* 失败自动截图、录屏（webm 附件）对同步、异步两种写法均生效；
+* 不请求 `page` 的纯异步用例（如纯接口测试）同样支持，框架会自动创建临时事件循环执行。
+
 **测试项目自己的 Python 依赖**（如 redis、pymysql 等）由项目自行安装到共享环境：
 `cd <框架目录>` 后执行 `pipenv install <包>`，测试代码即可直接 import。
