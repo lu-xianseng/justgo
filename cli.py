@@ -268,13 +268,31 @@ def _install_allure(version: str = None) -> int:
     """
     ver = version or DEFAULT_ALLURE_VERSION
     print(f"==> 安装 allure 报告工具（版本 {ver}，安装到用户目录，与框架解耦）")
+    # Java 仅在生成 HTML 报告时需要（allure CLI 为 Java 工具）；原始结果产出不需要
     java = shutil.which("java")
     if not java:
-        print("  [缺失] Java 运行时（allure 生成 HTML 报告必需）")
-        print("    安装：winget install EclipseAdoptium.Temurin.17.JDK")
-        print("    或手动下载 https://adoptium.net/ 并确保 java 在 PATH")
-        print("    装好 Java 后重新运行：lets-go install allure")
-        return 1
+        print("  [缺失] Java 运行时（生成 HTML 报告需要，仅报告环节需要）")
+        winget = shutil.which("winget")
+        if winget:
+            cmd = [
+                "winget", "install", "--id", "EclipseAdoptium.Temurin.17.JDK", "-e",
+                "--accept-source-agreements", "--accept-package-agreements",
+            ]
+            print("  尝试 winget 自动安装 Temurin JDK：")
+            print(f"    {' '.join(cmd)}")
+            rc = subprocess.call(cmd)
+            if rc != 0:
+                print(f"  winget 安装未完成（退出码 {rc}），可稍后重试或手动安装")
+                print("    手动下载 https://adoptium.net/ 并确保 java 在 PATH")
+                return 1
+            java = shutil.which("java")
+            if not java:
+                print("  安装完成但当前终端尚未刷新 PATH，请新开终端后重新运行 lets-go install allure")
+                return 1
+        else:
+            print("  系统无 winget，请手动安装：")
+            print("    下载 https://adoptium.net/ 并确保 java 在 PATH")
+            return 1
     print(f"  [OK] Java：{java}")
 
     install_dir = os.path.join(os.path.expanduser("~"), ".lets-go", "allure")

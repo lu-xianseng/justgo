@@ -63,7 +63,8 @@ lets-go install ffmpeg       # 系统 ffmpeg（仅桌面录屏后端 record_back
 - 浏览器与框架 playwright 库版本自动匹配，无需手动对齐；
 - **allure 工具与框架解耦**：不随框架打包，由 `lets-go install allure` 下载到用户目录
   `~/.lets-go/allure/`（默认锁定版本 2.24.1，可指定版本 `lets-go install allure 2.30.0` 随时升级/降级）；
-  需要 Java（缺失时命令会给出安装指引）。框架按以下优先级定位 allure：
+  Java 仅生成 HTML 报告时需要（原始结果产出不需要）——命令检测到缺失时会**尝试 winget
+  自动安装 Temurin JDK**（无 winget 时给出手动下载指引）。框架按以下优先级定位 allure：
   ① config.ini `allure_path` 填写的路径（绝对路径直接用，相对路径基于框架根解析）
   ② 留空时自动查找：PATH 上的 `allure` 命令，其次 `~/.lets-go/allure/*/bin`（多版本取最新）；
 - 不装 allure 不影响用例执行与 allure 原始结果（录屏 webm 照常产出），仅跳过 HTML 报告生成
