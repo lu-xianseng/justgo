@@ -24,3 +24,7 @@ lets-go = "cli:main"
 [tool.setuptools]
 packages = ["lets_go"]
 py-modules = ["cli"]
+
+# 配置文件属于框架资源，必须随包安装（默认只打包 .py 文件）
+[tool.setuptools.package-data]
+lets_go = ["configs/*.ini"]

@@ -11,3 +11,5 @@ reports
 cache
 temp
 tmp
+dist
+*.egg-info
