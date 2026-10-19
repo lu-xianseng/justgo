@@ -17,6 +17,8 @@ lets-go 框架的 pytest 插件入口。
 import asyncio
 import inspect
 from lets_go import *
+from lets_go.parse_tag import ParseTag  # 显式使用新版 ParseTag（tag/ 目录限定 + 可选模式），
+# 覆盖 from lets_go import * 可能绑定到 tag_manage 旧版 ParseTag 的情况
 
 parse_tag = ParseTag()
 enable_record = False

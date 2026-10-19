@@ -83,10 +83,13 @@ class GenerateReport:
             self.__cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
         )
-        out = res.stdout.read() if res.wait() == 0 else res.stderr.read()
+        out_bytes = res.stdout.read() if res.wait() == 0 else res.stderr.read()
+        try:
+            out = out_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            # Windows 中文系统下 allure 输出为系统代码页（GBK），utf-8 解码失败时回退
+            out = out_bytes.decode("gbk", errors="replace")
         print(f"\n\n{out}")
 
     def add_mark(self, item, item_config, tags):
