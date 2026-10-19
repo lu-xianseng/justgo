@@ -3,14 +3,14 @@
 # @Time     :2026/10/16
 # @Author   :luye
 """
-lets-go 命令行入口。
+just-go 命令行入口。
 
 用法：
-    lets-go add <名称> <测试项目路径>    注册一个测试项目
-    lets-go init <项目目录[类型]>        初始化测试项目骨架（类型可选 api/gui/all，默认 gui，如 "shop-test[all]"）
-    lets-go list                         列出已注册项目
-    lets-go remove <名称>                取消注册
-    lets-go run <名称|路径> [pytest参数] 执行指定测试项目的自动化测试
+    just-go add <名称> <测试项目路径>    注册一个测试项目
+    just-go init <项目目录[类型]>        初始化测试项目骨架（类型可选 api/gui/all，默认 gui，如 "shop-test[all]"）
+    just-go list                         列出已注册项目
+    just-go remove <名称>                取消注册
+    just-go run <名称|路径> [pytest参数] 执行指定测试项目的自动化测试
 
 run 内部机制：
     1. 解析目标为已注册名称或直接路径，得到测试项目根目录；
@@ -26,7 +26,7 @@ import shutil
 import subprocess
 import sys
 
-# 保证任何目录下都能 import lets_go（框架根 = 本文件所在目录，即 lets-go 项目根）
+# 保证任何目录下都能 import lets_go（框架根 = 本文件所在目录，即 just-go 项目根）
 FRAMEWORK_ROOT = os.path.dirname(os.path.abspath(__file__))
 if FRAMEWORK_ROOT not in sys.path:
     sys.path.insert(0, FRAMEWORK_ROOT)
@@ -65,7 +65,7 @@ def normalize_path(path: str) -> str:
 
 def cmd_add(args) -> int:
     if not args.name:
-        raise SystemExit("错误：请提供项目名称，例如：lets-go add office D:\\ProjectCode\\web_auto_test")
+        raise SystemExit("错误：请提供项目名称，例如：just-go add office D:\\ProjectCode\\web_auto_test")
     path = normalize_path(args.path)
     registry = load_registry()
     if args.name in registry:
@@ -79,7 +79,7 @@ def cmd_add(args) -> int:
 def cmd_list(_args) -> int:
     registry = load_registry()
     if not registry:
-        print("暂无已注册项目。使用 lets-go add <名称> <路径> 注册。")
+        print("暂无已注册项目。使用 just-go add <名称> <路径> 注册。")
         return 0
     print(f"已注册项目（{len(registry)} 个）：")
     for name, path in registry.items():
@@ -141,7 +141,7 @@ def cmd_run(args) -> int:
 
 
 # ---------------------------------------------------------------------------
-# lets-go install：框架依赖安装 / 检查（pipenv 管理虚拟环境）
+# just-go install：框架依赖安装 / 检查（pipenv 管理虚拟环境）
 # 组件：core（框架核心 Python 依赖）| playwright（浏览器 + 录制编码器）|
 #       allure（报告工具）| ffmpeg（桌面录屏后端，可选）| all（全部，默认）
 # ---------------------------------------------------------------------------
@@ -185,7 +185,7 @@ def _ensure_pipenv_runtime(argv: list) -> None:
             pipenv = shutil.which("pipenv")
         else:
             raise SystemExit(
-                "lets-go 使用 pipenv 管理虚拟环境，但未检测到 pipenv。\n"
+                "just-go 使用 pipenv 管理虚拟环境，但未检测到 pipenv。\n"
                 "请先安装：python -m pip install pipenv"
             )
     if not _pipenv_venv_path():
@@ -196,7 +196,7 @@ def _ensure_pipenv_runtime(argv: list) -> None:
                 raise SystemExit("pipenv 虚拟环境创建失败，请检查 Python 环境")
         else:
             raise SystemExit(
-                "尚未创建 pipenv 虚拟环境，请先运行：lets-go install"
+                "尚未创建 pipenv 虚拟环境，请先运行：just-go install"
             )
     # 重新进入 pipenv 环境执行（pipenv run 会设置 PIPENV_ACTIVE=1，不会再次引导）
     print("进入 pipenv 虚拟环境执行...")
@@ -280,7 +280,7 @@ def _install_allure(version: str = None) -> int:
     """下载安装 allure 报告工具到用户目录 ~/.lets-go/allure（版本与框架解耦）
 
     安装位置会被 settings 的自动查找逻辑识别（config.ini allure_path 留空即可）。
-    需要 Java（allure 为 Java 工具）；可指定版本：lets-go install allure 2.30.0
+    需要 Java（allure 为 Java 工具）；可指定版本：just-go install allure 2.30.0
     """
     ver = version or DEFAULT_ALLURE_VERSION
     print(f"==> 安装 allure 报告工具（版本 {ver}，安装到用户目录，与框架解耦）")
@@ -303,7 +303,7 @@ def _install_allure(version: str = None) -> int:
                 return 1
             java = shutil.which("java")
             if not java:
-                print("  安装完成但当前终端尚未刷新 PATH，请新开终端后重新运行 lets-go install allure")
+                print("  安装完成但当前终端尚未刷新 PATH，请新开终端后重新运行 just-go install allure")
                 return 1
         else:
             print("  系统无 winget，请手动安装：")
@@ -326,7 +326,7 @@ def _install_allure(version: str = None) -> int:
     try:
         import urllib.request
 
-        req = urllib.request.Request(url, headers={"User-Agent": "lets-go-installer"})
+        req = urllib.request.Request(url, headers={"User-Agent": "just-go-installer"})
         with urllib.request.urlopen(req, timeout=120) as resp, open(zip_path, "wb") as f:
             shutil.copyfileobj(resp, f)
     except Exception as e:
@@ -404,12 +404,12 @@ def cmd_install(args) -> int:
     for name, fn in steps[comp]:
         print(f"\n---------- 组件：{name} ----------")
         fn()
-    print("\n安装检查完成。浏览器安装后即可运行：lets-go run <项目>")
+    print("\n安装检查完成。浏览器安装后即可运行：just-go run <项目>")
     return 0
 
 
 # ---------------------------------------------------------------------------
-# lets-go init：初始化测试项目骨架
+# just-go init：初始化测试项目骨架
 # 支持类型后缀 [api|gui|all]（默认 gui）：
 #   gui -> cases(页面用例) / pages(页面对象) / tag
 #   api -> cases(接口用例) / apis(接口封装) / tag
@@ -420,7 +420,7 @@ def cmd_install(args) -> int:
 COMMON_TEMPLATES = {
     "conftest.py": '''#!/usr/bin/env python3
 # coding=utf-8
-"""测试项目根 conftest：让 lets-go 框架插件生效，并向框架注入本项目配置。
+"""测试项目根 conftest：让 just-go 框架插件生效，并向框架注入本项目配置。
 
 必改项（按你的项目填写）：
 - LETSGO_TEST_BASE_URL：被测系统实际地址（写入报告环境信息；页面对象跳转时也读取它）
@@ -458,7 +458,7 @@ testpaths = cases
 python_files = test_*.py
 python_classes = Test*
 python_functions = test_*
-# 录屏后端：playwright（内置，默认）或 ffmpeg（桌面录屏，需 lets-go install ffmpeg）
+# 录屏后端：playwright（内置，默认）或 ffmpeg（桌面录屏，需 just-go install ffmpeg）
 record_backend = playwright
 ''',
     "cases/base_case.py": '''#!/usr/bin/env python3
@@ -483,7 +483,7 @@ record_backend = playwright
 ''',
     "README.md": '''# {name} 自动化测试项目
 
-基于 lets-go 框架的测试项目骨架（类型：{mode_label}）。
+基于 just-go 框架的测试项目骨架（类型：{mode_label}）。
 
 > **骨架说明**：本命令生成的是**空白脚手架**——目录结构、配置、开发指南都在，
 > 但所有代码文件的类名、方法名、业务逻辑留空，由你按本指南自行填充。
@@ -498,16 +498,16 @@ record_backend = playwright
 
 ```bash
 # 首次：注册项目（把 <名称> 换成你的项目名）
-lets-go add <名称> .
+just-go add <名称> .
 
 # 执行全部用例
-lets-go run <名称>
+just-go run <名称>
 
 # 只收集不执行（快速验证骨架）
-lets-go run <名称> --collect-only
+just-go run <名称> --collect-only
 
 # 带 tag 筛选
-lets-go run <名称> --tag "smoke and L1"
+just-go run <名称> --tag "smoke and L1"
 ```
 
 或直接在项目根敲 pytest（conftest 已声明框架插件）：
@@ -529,11 +529,11 @@ pytest
 ## 运行产物
 
 默认输出到项目根下：`logs/`（日志）、`reports/`（allure 报告）、`cache/`（临时/截图/录屏）。
-可重定向：`lets-go run <名称> --output D:\\产物目录`。
+可重定向：`just-go run <名称> --output D:\\产物目录`。
 
 ## 依赖
 
-框架依赖由 lets-go 管理：`lets-go install`（core/playwright/allure/ffmpeg 可选）。
+框架依赖由 just-go 管理：`just-go install`（core/playwright/allure/ffmpeg 可选）。
 测试项目自身的 Python 依赖（如 redis、pymysql）由项目自行安装到运行环境。
 ''',
 }
@@ -848,7 +848,7 @@ def test_login_1001():
 ```
 
 - 脚本ID 必须等于 用例ID（框架校验）；
-- 运行时可筛选：`lets-go run <项目> --tag "L1 and 登录"`；
+- 运行时可筛选：`just-go run <项目> --tag "L1 and 登录"`；
 - 不想用 tag：删掉 `tag/` 目录即可，用例直接全部执行。
 '''
 
@@ -856,7 +856,7 @@ def test_login_1001():
 def cmd_init(args) -> int:
     """初始化测试项目骨架：目标目录不存在则创建（区别于 add 要求目录已存在）
 
-    支持类型后缀 [api|gui|all]，如 lets-go init "shop-test[all]"，默认 gui：
+    支持类型后缀 [api|gui|all]，如 just-go init "shop-test[all]"，默认 gui：
     - gui：生成页面对象 + 页面用例（pages/、cases/module/、tag/module.csv）
     - api：生成接口封装 + 接口用例（apis/、cases/api/、tag/api.csv）
     - all：两套都生成
@@ -900,15 +900,15 @@ def cmd_init(args) -> int:
         print(f"  {os.path.join(target, rel)}")
     print("\n下一步：")
     print(f"  1. 编辑 {os.path.join(target, 'conftest.py')} 里的 LETSGO_TEST_BASE_URL 为被测系统实际地址")
-    print(f"  2. 注册并运行：lets-go add <名称> {target}")
-    print("     lets-go run <名称>")
+    print(f"  2. 注册并运行：just-go add <名称> {target}")
+    print("     just-go run <名称>")
     return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="lets-go",
-        description="lets-go Web 自动化测试框架：以命令方式指定测试项目执行自动化测试。",
+        prog="just-go",
+        description="just-go Web 自动化测试框架：以命令方式指定测试项目执行自动化测试。",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -944,7 +944,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_init.add_argument(
         "target",
         help="项目目录名或路径，可带类型后缀 [api|gui|all]（默认 gui），如："
-        'lets-go init "shop-test[all]"（gui=页面对象用例，api=接口封装用例，all=两者都有）',
+        'just-go init "shop-test[all]"（gui=页面对象用例，api=接口封装用例，all=两者都有）',
     )
     p_init.set_defaults(func=cmd_init)
 
