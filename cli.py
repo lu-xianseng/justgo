@@ -445,35 +445,63 @@ python_files = test_*.py
 python_classes = Test*
 python_functions = test_*
 ''',
+    "cases/base_case.py": '''#!/usr/bin/env python3
+# coding=utf-8
+"""BaseCase：用例基类。
+
+把用例的**公共样板代码**下沉到这里（实例化被测页面对象、打开页面），
+具体用例类只需：
+1. 设置 page_cls（被测页面对象类）；
+2. 写业务步骤 + 断言——不关心页面怎么打开、对象怎么实例化。
+"""
+import allure
+
+
+class BaseCase:
+    """用例基类：子类设置 page_cls 后，open_page 等公共能力直接复用"""
+
+    page_cls = None  # 子类指定被测页面对象类（如 HomePage）
+
+    def open_page(self, page, path: str = ""):
+        """实例化被测页面对象并打开页面（样板代码进基类，用例只关注业务）"""
+        if self.page_cls is None:
+            raise RuntimeError(f"{type(self).__name__} 需要设置 page_cls（被测页面对象类）")
+        po = self.page_cls(page)
+        po.goto(path)
+        return po
+
+    # 更多公共逻辑按需在此扩展，例如：统一登录、公共数据准备、公共断言辅助等
+''',
     "cases/home/test_home_1001.py": '''#!/usr/bin/env python3
 # coding=utf-8
 """首页搜索用例（PO 模式示例）。
 
 开发一个用例的步骤：
-1. 在 pages/<页面>/page.py 写页面对象：元素定位器 + 页面操作 + 返回业务结果，
-   并在 pages/__init__.py 统一导出；
-2. 在 cases/<模块>/test_<模块>_<用例ID>.py 写用例：
-   - 用例函数名：test_<模块>_<用例ID>，用例ID 与本文件对应的 tag CSV 里的 用例ID 一致；
-   - 从 pages 统一出口导入页面对象（from pages import HomePage）；
-   - 通过框架的 page fixture 拿页面，实例化页面对象，调方法 + 断言；
+1. 在 pages/<页面>/page.py 写页面对象（继承 BasePage，通用操作直接用）：
+   元素定位器 + 业务操作 + 返回业务结果，并在 pages/__init__.py 统一导出；
+2. 在 cases/<模块>/test_<模块>_<用例ID>.py 写用例（继承 BaseCase）：
+   - 用例函数名：test_<模块>_<用例ID>，用例ID 与 tag CSV 里的 用例ID 一致；
+   - 类属性 page_cls 指定被测页面对象类；
+   - 通过框架的 page fixture 拿页面，调业务方法 + 断言；
 3. 需要 tag 管理时，在 tag/<模块>/<模块名>.csv 登记该用例（本示例已登记）；
 4. 运行：lets-go run <项目>（或直接在项目根敲 pytest）。
 """
 import allure
 
+from cases.base_case import BaseCase
 from pages import HomePage
 
 
 @allure.feature("首页")
 @allure.story("搜索")
-class TestHome:
+class TestHome(BaseCase):
+    page_cls = HomePage  # 被测页面对象类：open_page 由基类统一实例化并打开
 
     @allure.title("首页搜索功能验证")
     def test_home_search_1001(self, page):
         """首页搜索功能验证"""
-        home = HomePage(page)
-        home.goto()
-        home.search("手机")
+        home = self.open_page(page)  # 基类样板：实例化 HomePage 并打开首页
+        home.search("手机")          # 只写业务步骤
         assert "手机" in home.get_search_result(), "搜索结果应包含搜索关键词"
 ''',
     "pages/__init__.py": '''#!/usr/bin/env python3
@@ -486,9 +514,66 @@ class TestHome:
 
 好处：页面文件路径/类名调整时，只需要改这里，用例层无需改动。
 """
+from pages.base_page import BasePage
 from pages.home_page.page import HomePage
 
-__all__ = ["HomePage"]
+__all__ = ["BasePage", "HomePage"]
+''',
+    "pages/base_page.py": '''#!/usr/bin/env python3
+# coding=utf-8
+"""BasePage：页面对象基类。
+
+PO 模式的核心收益在这里：把**业务无关**的通用操作下沉到基类——
+输入、点击、等待、取文本、判断可见，以及系统高频按钮（确认/取消/保存等）。
+
+具体页面对象（如 HomePage）只需继承 BasePage，然后**只写业务**：
+元素定位器 + 业务操作组合，不用重复封装通用动作。
+
+同步用例传入 playwright.sync_api 的 Page；异步用例传入 playwright.async_api
+的 Page（其中方法需 await）。本示例为同步写法。
+"""
+from playwright.sync_api import Page
+
+
+class BasePage:
+    """页面对象基类：提供通用元素操作与常用按钮，业务页面继承后直接复用。"""
+
+    def __init__(self, page: Page):
+        self.page = page
+
+    # ---- 通用元素操作（业务无关，各页面直接复用）----
+    def fill(self, locator: str, text: str):
+        """输入框填值"""
+        self.page.fill(locator, text)
+
+    def click(self, locator: str):
+        """点击元素"""
+        self.page.click(locator)
+
+    def wait_visible(self, locator: str, timeout: int = 10000):
+        """等待元素可见（页面加载、弹层出现等统一走这里）"""
+        self.page.wait_for_selector(locator, state="visible", timeout=timeout)
+
+    def get_text(self, locator: str) -> str:
+        """取元素文本（供断言）"""
+        return self.page.text_content(locator) or ""
+
+    def is_visible(self, locator: str) -> bool:
+        """元素是否可见"""
+        return self.page.is_visible(locator)
+
+    # ---- 常用按钮（业务无关的高频操作，按需在基类扩展）----
+    def click_confirm(self):
+        """点击确认按钮"""
+        self.page.get_by_role("button", name="确认").click()
+
+    def click_cancel(self):
+        """点击取消按钮"""
+        self.page.get_by_role("button", name="取消").click()
+
+    def click_save(self):
+        """点击保存按钮"""
+        self.page.get_by_role("button", name="保存").click()
 ''',
     "pages/home_page/page.py": '''#!/usr/bin/env python3
 # coding=utf-8
@@ -496,44 +581,39 @@ __all__ = ["HomePage"]
 
 PO（Page Object）模式的核心约定：
 1. 一个页面一个类，类名与页面语义对应（HomePage -> 首页）；
-2. 元素定位器集中写在类顶部，页面结构变化时只改这里；
-3. 页面能做的操作封装成方法（打开、搜索、取结果），返回业务结果给用例断言；
-4. 用例层只调用 Page 方法 + 断言，不出现定位器或浏览器细节。
-
-同步用例传入 playwright.sync_api 的 Page；异步用例传入 playwright.async_api
-的 Page（其中方法需 await）。本示例为同步写法，异步写法见框架 README。
+2. **继承 BasePage**：输入/点击/等待/取文本等通用操作直接复用基类，
+   本类只写业务（元素定位器 + 业务操作组合）；
+3. 元素定位器集中写在类顶部，页面结构变化时只改这里；
+4. 业务方法返回业务结果给用例断言，用例层不出现定位器或浏览器细节。
 """
 import os
 
-from playwright.sync_api import Page
+from pages.base_page import BasePage
 
 
-class HomePage:
-    """首页页面对象：封装首页的元素与操作。"""
-
-    def __init__(self, page: Page):
-        self.page = page
+class HomePage(BasePage):
+    """首页页面对象：只写业务逻辑，通用操作继承 BasePage。"""
 
     # ---- 元素定位器：集中维护，页面结构变了只改这里 ----
     _search_input = 'input[placeholder*="搜索"]'
     _search_button = 'button:has-text("搜索")'
     _search_result = ".search-result"
 
-    # ---- 页面操作 ----
+    # ---- 页面操作（业务逻辑）----
     def goto(self, path: str = ""):
         """打开首页。基址来自项目 conftest 注入的 LETSGO_TEST_BASE_URL。"""
         base = os.environ.get("LETSGO_TEST_BASE_URL", "http://127.0.0.1:8000")
         self.page.goto(f"{base}{path}")
 
     def search(self, keyword: str):
-        """输入关键词并点击搜索，等待结果出现。"""
-        self.page.fill(self._search_input, keyword)
-        self.page.click(self._search_button)
-        self.page.wait_for_selector(self._search_result)
+        """输入关键词并点击搜索，等待结果出现（通用动作来自 BasePage）。"""
+        self.fill(self._search_input, keyword)
+        self.click(self._search_button)
+        self.wait_visible(self._search_result)
 
     def get_search_result(self) -> str:
         """返回搜索结果文本（业务结果，供用例断言）。"""
-        return self.page.text_content(self._search_result) or ""
+        return self.get_text(self._search_result)
 ''',
     "tag/home.csv": '''脚本ID,用例ID,用例级别,场景,跳过原因,废弃,其它
 1001,1001,L1,首页搜索,,,
@@ -549,10 +629,12 @@ class HomePage:
 ├─ conftest.py            # 项目根配置：声明框架插件 + 注入被测地址（必改）
 ├─ pytest.ini             # pytest 配置：收集规则 / 默认录屏
 ├─ cases/                 # 测试用例（一个用例文件 = 一个页面/功能的一组用例）
+│  ├─ base_case.py        # 用例基类：公共样板（打开页面/实例化页面对象）下沉到这里
 │  └─ home/
 │     └─ test_home_1001.py
 ├─ pages/                 # 页面对象（PO 核心：每个页面一个类）
 │  ├─ __init__.py         # 统一出口：所有页面对象在此导出，用例从 pages 导入
+│  ├─ base_page.py        # 页面基类：通用元素操作/常用按钮（业务无关）
 │  └─ home_page/
 │     └─ page.py
 └─ tag/                   # 用例标记（可选：tag 机制启用后支持 --tag 筛选）
@@ -562,55 +644,71 @@ class HomePage:
 > 说明：框架约定标记目录名为 `tag`（单数），位于项目根；项目没有 `tag/` 目录时
 > 不启用 tag 机制，用例不校验、不筛选，全部直接执行。
 
+## 核心思路：基类下沉公共逻辑，页面/用例只写业务
+
+自动化开发大量代码是重复的（输入、点击、等待、打开页面、实例化对象……）。
+本骨架用**两个基类**把这些业务无关的逻辑收拢，写页面和用例时只需要关注业务：
+
+| 基类 | 位置 | 收拢什么 |
+| --- | --- | --- |
+| `BasePage` | pages/base_page.py | 通用元素操作（fill/click/wait_visible/get_text/is_visible）、常用按钮（确认/取消/保存） |
+| `BaseCase` | cases/base_case.py | 用例公共样板（实例化页面对象、打开页面 open_page），后续可加登录/数据准备等 |
+
 ## 怎么开发自动化用例（PO 模式三步走）
 
 ### 1. 写页面对象（pages/）
-一个页面一个类，封装三样东西：
+继承 `BasePage`，通用操作直接用，**只写业务**（定位器 + 业务操作组合）：
 
 ```python
-class HomePage:
+from pages.base_page import BasePage
+
+class HomePage(BasePage):
     # ① 元素定位器：集中维护，页面结构变了只改这里
     _search_input = 'input[placeholder*="搜索"]'
 
-    # ② 页面操作：封装成方法
+    # ② 业务操作：组合 BasePage 的通用动作，只写业务步骤
     def search(self, keyword):
-        self.page.fill(self._search_input, keyword)
-        self.page.click(self._search_button)
+        self.fill(self._search_input, keyword)   # BasePage 提供
+        self.click(self._search_button)          # BasePage 提供
 
     # ③ 返回业务结果：供用例层断言
     def get_search_result(self):
-        return self.page.text_content(self._search_result)
+        return self.get_text(self._search_result)  # BasePage 提供
 ```
 
 写完后在 `pages/__init__.py` 统一导出（新增页面也这样做）：
 
 ```python
+from pages.base_page import BasePage
 from pages.home_page.page import HomePage
 
-__all__ = ["HomePage"]
+__all__ = ["BasePage", "HomePage"]
 ```
 
 ### 2. 写用例（cases/）
-用例只做三件事：**拿页面对象 → 调方法 → 断言**：
+继承 `BaseCase`，设置 `page_cls` 指定被测页面，**只写业务步骤 + 断言**：
 
 ```python
 import allure
-from pages import HomePage   # 从统一出口导入，不直接 import 具体文件
+from cases.base_case import BaseCase
+from pages import HomePage
 
 @allure.feature("首页")
-class TestHome:
+class TestHome(BaseCase):
+    page_cls = HomePage  # 被测页面对象类
+
     def test_home_search_1001(self, page):
         """首页搜索功能验证"""
-        home = HomePage(page)
-        home.goto()
-        home.search("手机")
+        home = self.open_page(page)  # 基类样板：实例化 HomePage 并打开
+        home.search("手机")          # 业务步骤
         assert "手机" in home.get_search_result(), "搜索结果应包含关键词"
 ```
 
 约定：
 - 用例函数名 `test_<模块>_<用例ID>`，用例ID（如 1001）与 tag CSV 中的 用例ID 对应；
 - `page` 是框架提供的 fixture（Playwright 页面）：同步用例直接调用，
-  异步用例 `async def test_xxx(page)` 用 `await page.xxx()`，两种写法都支持。
+  异步用例 `async def test_xxx(page)` 用 `await page.xxx()`，两种写法都支持；
+- 通用能力按需在 `BasePage`/`BaseCase` 扩展（如公共登录、表格操作），页面和用例保持只写业务。
 
 ### 3. 登记 tag（可选）
 启用 tag 机制后，用例必须先在 `tag/` 中登记，否则运行会提示"缺少tag信息"。
