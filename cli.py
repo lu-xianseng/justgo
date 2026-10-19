@@ -204,21 +204,36 @@ def _ensure_pipenv_runtime(argv: list) -> None:
 
 
 def _pipenv_install(packages: list | None, title: str) -> int:
-    """pipenv install 安装依赖：packages 为空时按 Pipfile 全量安装"""
+    """安装依赖：
+    - 有 pipenv（源码开发环境）：pipenv install 安装到 pipenv 虚拟环境；
+    - 无 pipenv 但在虚拟环境内（发布版：wheel 已自动装好 Python 依赖，且无 Pipfile）：
+      退化用 pip 安装到当前 venv；packages 为空（Pipfile 全量）时说明依赖已随 wheel 安装并跳过；
+    - 其余情况给出 pipenv 安装指引。
+    """
     pipenv = shutil.which("pipenv")
-    if not pipenv:
+    if pipenv:
+        cmd = [pipenv, "install", "--skip-lock"]
+        if packages:
+            cmd += packages
+    elif _is_venv():
+        # 发布版环境：依赖已在 pip install <wheel> 时安装
+        if not packages:
+            print("  当前为安装版环境（无 Pipfile），Python 依赖已随 wheel 安装，跳过")
+            return 0
+        cmd = [sys.executable, "-m", "pip", "install"] + packages
+    else:
         raise SystemExit("未检测到 pipenv，请先执行：python -m pip install pipenv")
-    cmd = [pipenv, "install", "--skip-lock"]
-    if packages:
-        cmd += packages
     print(f"==> {title}")
     print(f"    {' '.join(cmd)}")
     return subprocess.call(cmd)
 
 
 def _parse_pyproject_deps() -> list:
-    """从 pyproject.toml 解析框架核心依赖清单"""
+    """从 pyproject.toml 解析框架核心依赖清单；发布版（无 pyproject.toml）返回空，
+    依赖已随 wheel 安装，由 _pipenv_install 的退化分支处理"""
     pyproject = os.path.join(FRAMEWORK_ROOT, "pyproject.toml")
+    if not os.path.exists(pyproject):
+        return []
     with open(pyproject, encoding="utf-8") as f:
         text = f.read()
     m = re.search(r"^dependencies\s*=\s*\[(.*?)\]", text, re.M | re.S)
