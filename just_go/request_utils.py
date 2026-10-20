@@ -2,12 +2,14 @@
 # coding=utf-8
 # @Time     :2025/6/12 17:51
 # @Author   :luye
+from typing import Any, Dict, Optional, Union
+
 import requests
-from typing import Dict, Any, Optional, Union
 from requests import Response
 from requests.exceptions import RequestException
-from just_go.logger import logger
+
 from just_go.exceptions import RequestError
+from just_go.logger import logger
 
 
 class Request:
@@ -118,3 +120,13 @@ class Request:
     def delete(self, url: str, headers: Dict[str, str] = None, **kwargs) -> Response:
         """发送DELETE请求"""
         return self.request("DELETE", url, headers=headers, **kwargs)
+
+    def set_token(self, token: str, header_name: str = "Authorization", prefix: str = "") -> None:
+        """注入登录令牌：写入全局请求头，后续所有请求自动携带。
+
+        Args:
+            token: 令牌值
+            header_name: 请求头名（默认 Authorization）
+            prefix: 值前缀，如 "Bearer " 则最终值为 "Bearer <token>"
+        """
+        self.headers[header_name] = f"{prefix}{token}"

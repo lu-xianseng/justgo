@@ -3,7 +3,9 @@
 # @Time     :2025/6/20 15:11
 # @Author   :luye
 import os
+
 from faker import Faker
+
 from just_go.settings import ROOTDIR
 
 

@@ -4,16 +4,17 @@
 # @Author   :luye
 import os
 import platform
-import time
 import shutil
 import subprocess
+import time
+from importlib.metadata import version
 from typing import Optional
 
-import pytest
 import allure
-from importlib.metadata import version
-from just_go.settings import TMP_REPORT_PATH, REPORT_PATH, ROOTDIR, ALLURE_PATH
-from just_go.exceptions import SoftwareNotInstallError, RecordError
+import pytest
+
+from just_go.exceptions import RecordError, SoftwareNotInstallError
+from just_go.settings import ALLURE_PATH, REPORT_PATH, TMP_REPORT_PATH
 
 
 class GenerateReport:

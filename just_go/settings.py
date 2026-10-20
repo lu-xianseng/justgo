@@ -5,9 +5,7 @@
 import os
 import shutil
 from configparser import ConfigParser
-from typing import Optional, Dict, Any
-
-import allure
+from typing import Any, Dict, Optional
 
 
 class SectionWrapper:

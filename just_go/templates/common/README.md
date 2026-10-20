@@ -41,6 +41,9 @@ pytest
 | 用例链接前缀 | conftest.py 的 JUSTGO_TEST_CASE_BASE_URL | 可选 |
 | 录屏开关 | pytest.ini 的 --record | 默认开；删掉该行即关闭 |
 | 录屏方式 | 框架内置 | 统一使用系统 ffmpeg 桌面录屏（gdigrab），产出 mp4 附到报告；需已安装 ffmpeg（`just-go install ffmpeg`） |
+| 失败重试 | pytest.ini 的 --reruns | 默认失败重试 1 次；单用例可用 `@pytest.mark.flaky(reruns=3)` 覆盖，改 0 即关闭 |
+| 浏览器类型 | conftest.py 里 config.run.browser_type | chromium/firefox/webkit，默认 chromium |
+| 登录态复用 | conftest.py 里 config.run.storage_state | 登录用例保存 state 文件后跨用例复用，免重复登录 |
 | 慢速/是否显示浏览器 | conftest.py 里 config.run.xxx | 运行时覆盖，优先级高于框架配置文件 |
 
 ## 运行产物

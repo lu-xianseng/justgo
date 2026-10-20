@@ -12,7 +12,7 @@ class CaseControl(type):
 
     @staticmethod
     def __check_case(dic):
-        if not "case_base" in dic["__module__"]:
+        if "case_base" not in dic["__module__"]:
             # 用例文件（模块）与用例方法名校验：取模块名最后一段（即文件名，
             # 兼容 --import-mode=importlib 下模块名为完整路径的情况）匹配方法名
             module_name = dic["__module__"].split(".")[-1]

@@ -16,8 +16,19 @@ just-go 框架的 pytest 插件入口。
 """
 import asyncio
 import inspect
-from just_go import *
+import os
+import time
+
+import allure
+import pytest
+from _pytest.python import Function
+from playwright.sync_api import Page
+
+from just_go.exceptions import ConfigError
+from just_go.logger import custom_logger, logger
 from just_go.parse_tag import ParseTag  # 显式导入，确保使用 tag/ 目录限定的新版 ParseTag
+from just_go.settings import ROOTDIR, TEMP_PATH, TMP_REPORT_PATH, config
+from just_go.tools import generate_report, record
 
 parse_tag = ParseTag()
 enable_record = False
@@ -30,6 +41,11 @@ def pytest_runtest_logstart(nodeid, location):
 def pytest_sessionstart(session):
     """在测试会话开始时加载所有标记数据"""
     logger.info("开始加载测试用例标记数据...")
+    # 多环境：--env 指定环境标识（dev/test/prod），写入 JUSTGO_ENV 供测试项目
+    # conftest 按环境加载被测地址（详见骨架 conftest.py 的 BASE_URLS 示例）
+    env = session.config.getoption("--env")
+    if env:
+        os.environ["JUSTGO_ENV"] = env
     parse_tag.load_all_test_tags(session)
 
 
@@ -37,7 +53,6 @@ def pytest_collection_modifyitems(session, config, items):
     """pytest收集用例后修改用例列表"""
     deselected = []
     skipped = []
-    registered_marks = [mark.split(":")[0].strip() for mark in config.getini("markers")]
 
     tag_expression = config.getoption("--tag")
     # tag 模式为可选项：项目根存在 tag/*.csv 数据（pytest_sessionstart 已加载进缓存）时启用；
@@ -107,6 +122,12 @@ def pytest_addoption(parser):
         default="no",
         choices=["yes", "no"],
         help="启用录屏功能 (yes/no)",
+    )
+    parser.addoption(
+        "--env",
+        action="store",
+        default=None,
+        help="运行环境标识（如 dev/test/prod），写入 JUSTGO_ENV 供测试项目按环境加载配置",
     )
 
 
@@ -189,7 +210,7 @@ def pytest_runtest_makereport(item, call):
         if video_file:
             allure.attach.file(
                 video_file,
-                name=f"Test Record",
+                name="Test Record",
                 attachment_type=record.attachment_type,
             )
             try:
@@ -200,8 +221,19 @@ def pytest_runtest_makereport(item, call):
 
 
 def _page_setup() -> dict:
-    """构造浏览器启动参数（同步/异步共用）"""
+    """构造浏览器启动参数（同步/异步共用）
+
+    - browser_type：config.run.browser_type 指定 chromium/firefox/webkit；
+    - storage_state：config.run.storage_state 指定登录态文件（相对路径基于项目根），
+      用于跨用例复用登录态（留空则每次使用全新临时 profile）。
+    """
     import tempfile
+
+    browser_type = (config.run.browser_type or "chromium").strip().lower()
+    if browser_type not in ("chromium", "firefox", "webkit"):
+        raise ConfigError(
+            f"不支持的浏览器类型: {browser_type}（仅支持 chromium/firefox/webkit）"
+        )
 
     temp_dir = tempfile.mkdtemp(prefix="playwright_temp_")
     setup = {
@@ -218,16 +250,31 @@ def _page_setup() -> dict:
     }
     if config.framework.browser_path:
         setup["executable_path"] = config.framework.browser_path
+
+    storage_state = (config.run.storage_state or "").strip()
+    if storage_state:
+        state_path = (
+            storage_state
+            if os.path.isabs(storage_state)
+            else os.path.join(ROOTDIR, storage_state)
+        )
+        if not os.path.exists(state_path):
+            raise ConfigError(f"storage_state 文件不存在: {state_path}")
+        setup["storage_state"] = state_path
+
+    setup["browser_type"] = browser_type
     return setup
 
 
 def _sync_page_lifecycle(page_setup: dict):
     """同步模式：playwright.sync_api 单进程驱动（原有方式）"""
     import shutil
+
     from playwright.sync_api import sync_playwright
 
+    browser_type = page_setup.pop("browser_type")
     driver = sync_playwright().start()
-    browser = driver.chromium.launch_persistent_context(**page_setup)
+    browser = getattr(driver, browser_type).launch_persistent_context(**page_setup)
     _page = browser.pages[0]
     if enable_record:
         record.start(TEMP_PATH)
@@ -246,13 +293,15 @@ def _async_page_lifecycle(request, page_setup: dict):
     page.xxx() 与 fixture 的启动/关闭在同一 loop 内完成。
     """
     import shutil
+
     from playwright.async_api import async_playwright
 
+    browser_type = page_setup.pop("browser_type")
     loop = asyncio.new_event_loop()
     request.node._justgo_loop = loop
     driver = loop.run_until_complete(async_playwright().start())
     browser = loop.run_until_complete(
-        driver.chromium.launch_persistent_context(**page_setup)
+        getattr(driver, browser_type).launch_persistent_context(**page_setup)
     )
     _page = browser.pages[0]
     if enable_record:

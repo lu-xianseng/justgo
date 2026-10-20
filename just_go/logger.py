@@ -2,13 +2,15 @@
 # coding=utf-8
 # @Time     :2025/2/28 17:02
 # @Author   :luye
+import inspect
 import os
 import re
 import time
-import inspect
+from functools import wraps
+
 import allure
 from loguru import logger as llog
-from functools import wraps
+
 from just_go.settings import LOG_PATH
 
 

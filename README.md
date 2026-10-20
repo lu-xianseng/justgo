@@ -23,6 +23,9 @@ just-go run SHOP-TEST    # 4. 执行测试项目
 | **桌面录屏（ffmpeg）** | 基于系统 ffmpeg（gdigrab）录制整个桌面，产出 mp4 自动附到报告；`just-go install ffmpeg` 一键安装 |
 | **allure 报告开箱即用** | 自动生成 HTML 报告，附失败截图、录屏、用例日志；报告工具与 Java 由 `just-go install` 自动处理 |
 | **tag 用例筛选** | 项目 `tag/` 目录 + CSV 登记用例，`--tag "L1 and smoke"` 表达式筛选，支持 and/or/括号 |
+| **多浏览器支持** | `config.run.browser_type` 一键切换 chromium / firefox / webkit，无需改用例 |
+| **登录态复用** | 登录一次保存 storage_state，跨用例复用，免重复登录 |
+| **失败自动重试** | 默认失败重试 1 次（flaky 用例用 `@pytest.mark.flaky` 单独控制） |
 | **产物可重定向** | 日志/报告/录屏默认输出在测试项目根，CI 场景用 `--output` 重定向归档 |
 | **环境管理省心** | pipenv 虚拟环境自动引导；`just-go install core/playwright/allure/ffmpeg` 缺什么装什么 |
 
@@ -125,6 +128,73 @@ just-go install ffmpeg    # 自动安装（winget），装完需新开终端刷�
 
 ---
 
+## 浏览器与登录态
+
+**多浏览器**：`config.run.browser_type` 支持 `chromium` / `firefox` / `webkit`（默认 chromium），
+不用改任何用例代码：
+
+```python
+# 测试项目 conftest.py 顶部
+from just_go import config
+config.run.browser_type = "firefox"   # 或 webkit
+```
+
+**登录态复用**：Web 用例最痛的"每个用例都要登录"问题——登录一次保存状态，后续用例直接复用：
+
+```python
+# 1. 登录用例里保存（通常在首个用例或一次性脚本执行一次）：
+page.context.storage_state(path="state.json")
+
+# 2. 项目 conftest.py 声明复用：
+config.run.storage_state = "state.json"   # 相对路径基于测试项目根
+```
+
+之后每个用例启动浏览器都会自动加载该登录态。重新登录只需删掉 `state.json` 再跑一次保存步骤。
+
+**失败自动重试**：骨架默认失败用例重试 1 次（间隔 1 秒）。个别用例想单独控制：
+
+```python
+@pytest.mark.flaky(reruns=3, reruns_delay=2)
+def test_unstable_1001(self, page):
+    ...
+```
+
+想全局关闭：把 `pytest.ini` 里的 `--reruns=1 --reruns-delay=1` 两行删掉或改为 `--reruns=0`。
+
+**多环境切换**：骨架 conftest.py 内置 `BASE_URLS`（dev/test/prod），运行时用 `--env` 一键切换：
+
+```bash
+just-go run shop --env prod    # 或 pytest --env prod
+```
+
+未指定时默认 `dev`。环境标识写入 `JUSTGO_ENV`，conftest 按它加载对应被测地址（增删环境只改 `BASE_URLS` 字典）。
+
+**数据驱动**：把用例数据抽到 JSON/CSV 文件，配合 pytest 参数化：
+
+```python
+import pytest
+from just_go.data import load_json_cases, load_csv_cases
+
+@pytest.mark.parametrize("case", load_json_cases("login_cases.json"))
+def test_login(case):
+    data = login(case["username"], case["password"])
+    assert data["code"] == 0
+```
+
+JSON 顶层为数组（每项一组参数），CSV 首行为表头；相对路径基于测试项目根解析。
+
+**接口令牌注入**：登录拿到 token 后一键注入全局请求头，后续请求自动携带：
+
+```python
+from just_go import Request
+
+api = Request()
+api.set_token(token, prefix="Bearer ")           # Authorization: Bearer <token>
+api.set_token(token, header_name="X-Token")      # 自定义请求头名
+```
+
+---
+
 ## tag 用例筛选（可选）
 
 不用 tag 也能跑：项目没有 `tag/` 目录时，用例全部直接执行。需要筛选时：
@@ -179,6 +249,8 @@ just-go run shop --tag "(L1 or L2) and smoke"  # 括号组合
 | `framework.allure_path` | allure 工具路径（留空自动查找 PATH 或 `~/.just-go/allure`） |
 | `run.slow_time` | 操作慢速等待毫秒数（默认 500） |
 | `run.show_browser` | `True` 显示浏览器窗口 / `False` 无头运行 |
+| `run.browser_type` | 浏览器类型：`chromium` / `firefox` / `webkit`（默认 chromium） |
+| `run.storage_state` | 登录态文件路径（留空不启用；相对路径基于测试项目根） |
 
 ### 项目级
 
@@ -187,6 +259,8 @@ just-go run shop --tag "(L1 or L2) and smoke"  # 括号组合
 | `JUSTGO_TEST_BASE_URL` | 项目 `conftest.py` | 被测系统地址（**必改**），用于页面跳转基址 + 报告环境信息 |
 | `JUSTGO_TEST_CASE_BASE_URL` | 项目 `conftest.py` | 测试管理平台（如禅道）用例链接前缀（可选） |
 | `--record` | 项目 `pytest.ini` | 录屏开关（默认开） |
+| `--reruns` | 项目 `pytest.ini` | 失败重试次数（默认 1），`@pytest.mark.flaky(reruns=3)` 可单用例覆盖 |
+| `--env <名称>` | `just-go run` / `pytest` | 运行环境（dev/test/prod），写入 `JUSTGO_ENV`，配合骨架 conftest 的 `BASE_URLS` 切换被测地址 |
 | `config.run.slow_time` 等 | 项目 `conftest.py` | 运行时覆盖框架配置，只对本次运行生效 |
 | `--output <目录>` | `just-go run` | 产物输出根目录，按 输出根/项目名 分子目录，多项目互不干扰 |
 

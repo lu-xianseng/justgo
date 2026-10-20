@@ -1,0 +1,33 @@
+# GitHub Actions：每次 push / PR 自动跑框架自身单元测试 + ruff 代码规范检查。
+# 发布链路见 pypi-publish.yml（打 v* tag 构建并发布 PyPI）。
+
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install package and dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+          python -m pip install ruff
+
+      - name: Run unit tests
+        run: python -m pytest tests/ -q
+
+      - name: Lint with ruff
+        run: ruff check .

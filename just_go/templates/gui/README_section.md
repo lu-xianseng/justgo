@@ -24,7 +24,7 @@
 
 | 基类 | 位置 | 收拢什么 |
 | --- | --- | --- |
-| `BasePage` | pages/base_page.py | 通用元素操作（fill/click/wait_visible/get_text/is_visible）、常用按钮（确认/取消/保存） |
+| `BasePage` | pages/base_page.py | 现成通用操作：fill/click/wait_visible/get_text/is_visible/select_option/press、多标签页切换 |
 | `BaseCase` | cases/base_case.py | 用例公共样板（实例化页面对象、打开页面 open_page），后续可加登录/数据准备等 |
 
 ## 怎么开发 GUI 用例（三步走）
