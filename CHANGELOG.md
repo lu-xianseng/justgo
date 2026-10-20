@@ -6,8 +6,6 @@
 
 ## [0.1.5] - 未发布
 
-> 说明：`0.1.4` 版本号曾提交但未发布，其改动全部并入本版本。
-
 ### 新增
 - 多浏览器支持：`config.run.browser_type`（chromium / firefox / webkit）
 - 登录态复用：`config.run.storage_state` 加载已保存登录态，跨用例免重复登录
@@ -22,13 +20,18 @@
 - PyPI 元数据：license（MIT，PEP 639 表达式）、authors、keywords、classifiers
 
 ### 重构与修复
-- init 骨架模板抽离为 `just_go/templates/` 独立文件，随包发布（不再内联于 cli.py）
 - `just_go/__init__.py` 改显式导入 + `__all__`，消除 star import 隐式依赖链
 - `plugin.py` 全部名字改显式导入（修复 `Function` 等依赖隐式链的潜在 NameError）
 - `browser_utils.py` 去重 playwright 导入、修正 `expect` re-export、补 `__all__`
 - `controller.py` 修复 `not in` 写法；`settings.py` 移除未用导入
 - 全项目通过 ruff 检查（配置见 pyproject.toml `[tool.ruff]`）
 - README 补充「浏览器与登录态」「多环境切换」「失败重试」「数据驱动」「接口令牌」说明
+
+## [0.1.4] - 2026-10-20
+
+### 重构
+- init 骨架模板抽离为 `just_go/templates/` 独立文件，随包发布（不再内联于 cli.py）
+- README 补充「浏览器与登录态」「多环境切换」「失败重试」说明（与模板同步）
 
 ## [0.1.3] - 2026-10-20
 
