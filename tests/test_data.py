@@ -13,8 +13,6 @@ class TestLoadJsonCases:
         assert data[0]["username"] == "admin"
 
     def test_relative_resolves_against_rootdir(self, tmp_path, monkeypatch):
-        from just_go.data import ROOTDIR
-
         monkeypatch.setattr("just_go.data.ROOTDIR", str(tmp_path))
         f = tmp_path / "cases.json"
         f.write_text("[]", encoding="utf-8")

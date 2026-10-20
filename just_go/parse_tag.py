@@ -22,8 +22,7 @@ class UpdateTag:
 
     def create_tag_file(self, item: Item) -> Optional[str]:
         """获取测试用例对应的CSV标记文件路径"""
-        test_file_path = item.location[0]
-        module_dir = os.path.dirname(test_file_path)
+        module_dir = ParseTag._module_dir(item)
         # 仅把路径首段 cases 替换为 tag（避免误伤模块目录名中含 cases 的情况）
         module_dir = (
             "tag" + module_dir[len("cases"):]
@@ -32,6 +31,7 @@ class UpdateTag:
         )
         csv_path = os.path.join(ROOTDIR, module_dir + ".csv")
         if not os.path.exists(csv_path):
+            os.makedirs(os.path.dirname(csv_path), exist_ok=True)
             with open(csv_path, "w", encoding="utf-8", newline="") as f:
                 writer = csv.writer(f)
                 writer.writerow(
@@ -80,6 +80,18 @@ class ParseTag:
                 pytest.exit(f"错误: {str(e)}")
 
     @staticmethod
+    def _module_dir(item: Item) -> str:
+        """用例文件所在目录（相对项目根）。
+
+        pytest 的 item.location[0] 在部分收集模式（如 --import-mode=importlib）
+        下可能是绝对路径，先相对化再判前缀，避免 tag 路径拼到项目外。
+        """
+        test_file_path = item.location[0]
+        if os.path.isabs(test_file_path):
+            test_file_path = os.path.relpath(test_file_path, ROOTDIR)
+        return os.path.dirname(test_file_path)
+
+    @staticmethod
     def get_test_case_id(item: Function) -> Optional[str]:
         """从测试用例中提取ID"""
         test_name = item.name
@@ -92,8 +104,7 @@ class ParseTag:
 
     def get_module_csv_path(self, item: Item) -> Optional[str]:
         """获取测试用例对应的CSV标记文件路径"""
-        test_file_path = item.location[0]
-        module_dir = os.path.dirname(test_file_path)
+        module_dir = self._module_dir(item)
         # 仅把路径首段 cases 替换为 tag（避免误伤模块目录名中含 cases 的情况）
         module_dir = (
             "tag" + module_dir[len("cases"):]
@@ -122,6 +133,8 @@ class ParseTag:
             precedence = {'and': 2, 'or': 1, '(': 0}
 
             def apply_operator():
+                if len(stack) < 2 or not operators:
+                    return
                 op = operators.pop()
                 right = stack.pop()
                 left = stack.pop()
@@ -139,6 +152,9 @@ class ParseTag:
                 elif token == ')':
                     while operators and operators[-1] != '(':
                         apply_operator()
+                    # 防御：表达式括号不匹配（多右括号）时栈已空，无法继续求值
+                    if not operators:
+                        return False
                     operators.pop()  # 弹出左括号
                     i += 1
                 elif token in {'and', 'or'}:
@@ -154,6 +170,10 @@ class ParseTag:
                     i += 1
 
             while operators:
+                # 防御：残留左括号（多左括号）或操作数不足（如 "L1 or"）时
+                # 表达式不完整，直接判定为不匹配，避免死循环
+                if operators[-1] == '(' or len(stack) < 2:
+                    return False
                 apply_operator()
 
             return stack[0] if stack else False

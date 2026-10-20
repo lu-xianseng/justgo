@@ -46,9 +46,47 @@ class TestEvaluateExpression:
     def test_empty_expression(self):
         assert ParseTag.evaluate_expression("", self.tags) is False
 
+    def test_unbalanced_parenthesis_does_not_crash(self):
+        # 多右括号（不匹配）应返回 False 而非 IndexError
+        assert ParseTag.evaluate_expression("L1 or (L2", self.tags) is False
+        assert ParseTag.evaluate_expression("L1)", self.tags) is False
+
     def test_token_in_value_substring(self):
         # 子串匹配：token "登录" 命中 "登录接口"
         assert ParseTag.evaluate_expression("登录", self.tags) is True
+
+
+class TestModuleDir:
+    """_module_dir：绝对/相对 location 都正确转成相对项目根的模块目录"""
+
+    @staticmethod
+    def _make_item(location):
+        class FakeItem:
+            pass
+
+        item = FakeItem()
+        item.location = (location, 0, None)
+        return item
+
+    def test_relative_location(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("just_go.parse_tag.ROOTDIR", str(tmp_path))
+        rel = os.path.join("cases", "gui", "test_login.py")
+        assert ParseTag._module_dir(self._make_item(rel)) == os.path.join(
+            "cases", "gui"
+        )
+
+    def test_absolute_location_relative_to_root(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("just_go.parse_tag.ROOTDIR", str(tmp_path))
+        abs_path = os.path.join(str(tmp_path), "cases", "gui", "test_login.py")
+        assert ParseTag._module_dir(self._make_item(abs_path)) == os.path.join(
+            "cases", "gui"
+        )
+
+    def test_absolute_location_outside_root(self, tmp_path, monkeypatch):
+        # 项目外文件：相对化后以 .. 开头，不误判为 cases 前缀
+        monkeypatch.setattr("just_go.parse_tag.ROOTDIR", str(tmp_path))
+        outside = os.path.join(str(tmp_path), "..", "other", "test_x.py")
+        assert ParseTag._module_dir(self._make_item(outside)).startswith("..")
 
 
 class TestFindAllCsvFiles:
@@ -104,9 +142,24 @@ class TestUpdateTag:
         csv_path = updater.create_tag_file(FakeItem())
         assert os.path.basename(csv_path) == "module.csv"
         assert csv_path.startswith(str(tmp_path))
+        # tag 目录自动创建
+        assert os.path.isdir(os.path.join(str(tmp_path), "tag"))
         content = open(csv_path, encoding="utf-8").read()
         assert "用例ID,用例级别,场景,跳过原因" in content
         # 再次调用不覆盖、不重复表头
         updater.create_tag_file(FakeItem())
         content2 = open(csv_path, encoding="utf-8").read()
         assert content2 == content
+
+    def test_create_tag_file_with_absolute_location(self, tmp_path, monkeypatch):
+        # importlib 模式下 location 为绝对路径：仍应落在项目根 tag/ 下
+        monkeypatch.setattr("just_go.parse_tag.ROOTDIR", str(tmp_path))
+        cases = tmp_path / "cases" / "api"
+        cases.mkdir(parents=True)
+
+        class FakeItem:
+            location = (str(cases / "test_xxx.py"), 0, None)
+
+        updater = UpdateTag()
+        csv_path = updater.create_tag_file(FakeItem())
+        assert csv_path == os.path.join(str(tmp_path), "tag", "api.csv")

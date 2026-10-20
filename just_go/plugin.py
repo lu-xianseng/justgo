@@ -147,7 +147,7 @@ def pytest_configure(config):
 
 
 def pytest_runtest_call(item):
-    logger.info(item.obj.__doc__)
+    logger.info(item.obj.__doc__ or "未命名用例")
 
 
 @pytest.hookimpl(tryfirst=True)
@@ -217,7 +217,11 @@ def pytest_runtest_makereport(item, call):
                 os.remove(video_file)
             except Exception:
                 time.sleep(2)
-                os.remove(video_file)
+                try:
+                    os.remove(video_file)
+                except OSError:
+                    # 文件仍被占用（如录屏进程尚未完全释放）时保留文件，避免 teardown 崩溃
+                    logger.warning(f"录屏文件未能删除，已保留: {video_file}")
 
 
 def _page_setup() -> dict:

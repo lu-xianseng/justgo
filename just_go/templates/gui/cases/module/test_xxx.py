@@ -8,7 +8,7 @@
 - 通过框架的 page fixture 拿页面；同步用例直接调用，异步用例 async def + await
 
 开发步骤（详见项目 README）：
-1. 页面对象写在 pages/<页面>/page.py（继承你的 BasePage），并在 pages/__init__.py 导出；
+1. 页面对象写在 pages/<模块>.py（继承 pages/base_page.py 的 BasePage），并在 pages/__init__.py 导出；
 2. 用例继承你的用例基类，只写业务步骤 + 断言；
 3. 需要 tag 管理时，在 tag/<模块>/<模块名>.csv 登记该用例。
 """

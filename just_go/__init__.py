@@ -26,6 +26,7 @@ from just_go.exceptions import (
     BrowserError,
     CaseError,
     ConfigError,
+    FileNotExistsError,
     JustGoError,
     RecordError,
     RequestError,
@@ -73,8 +74,8 @@ __all__ = [
     "PROJECT_NAME", "REPORT_PATH", "ROOTDIR", "TEMP_PATH", "TMP_REPORT_PATH",
     "config", "config_parser",
     # exceptions
-    "BrowserError", "CaseError", "ConfigError", "JustGoError", "RecordError",
-    "RequestError", "SoftwareNotInstallError", "TagError",
+    "BrowserError", "CaseError", "ConfigError", "FileNotExistsError", "JustGoError",
+    "RecordError", "RequestError", "SoftwareNotInstallError", "TagError",
     # mock
     "MockData", "mock",
 ]

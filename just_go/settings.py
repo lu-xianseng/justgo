@@ -140,13 +140,25 @@ def _resolve_allure_path() -> str:
     if found:
         return found
 
-    # 用户目录安装（just-go install allure 的安装位置），多版本并存时取排序最新
+    # 用户目录安装（just-go install allure 的安装位置），多版本并存时取最新
     user_allure_dir = os.path.join(os.path.expanduser("~"), ".just-go", "allure")
     exe_name = "allure.bat" if os.name == "nt" else "allure"
-    hits = sorted(glob.glob(os.path.join(user_allure_dir, "*", "bin", exe_name)))
+    hits = sorted(
+        glob.glob(os.path.join(user_allure_dir, "*", "bin", exe_name)),
+        key=_version_key,
+    )
     if hits:
         return hits[-1]
     return ""
+
+
+def _version_key(path: str) -> tuple:
+    """按 (主, 次, 修订) 数值排序版本目录（避免 2.9.0 排在 2.10.0 之后的字典序问题）"""
+    import re as _re
+
+    dir_name = os.path.basename(os.path.dirname(os.path.dirname(path)))
+    nums = _re.findall(r"\d+", dir_name)
+    return tuple(int(n) for n in nums[:3]) or (0, 0, 0)
 
 
 ALLURE_PATH = _resolve_allure_path()

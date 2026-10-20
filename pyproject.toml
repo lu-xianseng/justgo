@@ -63,11 +63,9 @@ just_go = [
     "templates/gui/*",
     "templates/gui/cases/module/*",
     "templates/gui/pages/*",
-    "templates/gui/pages/module_page/*",
     "templates/gui/tag/*",
     "templates/api/*",
     "templates/api/apis/*",
-    "templates/api/apis/module/*",
     "templates/api/cases/api/*",
     "templates/api/tag/*",
 ]

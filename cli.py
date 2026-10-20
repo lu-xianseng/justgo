@@ -262,7 +262,11 @@ def _install_playwright() -> int:
     if rc != 0:
         print(f"    [失败] Chromium 安装未完成（退出码 {rc}），可稍后重试本命令")
         return rc
-    print("    已安装到 %LOCALAPPDATA%\\ms-playwright；版本与框架 playwright 库自动匹配")
+    print(
+        "    已安装到 "
+        + ("%LOCALAPPDATA%\\ms-playwright" if os.name == "nt" else "~/.cache/ms-playwright")
+        + "；版本与框架 playwright 库自动匹配"
+    )
     return 0
 
 
@@ -300,9 +304,27 @@ def _install_allure(version: str = None) -> int:
                 print("  安装完成但当前终端尚未刷新 PATH，请新开终端后重新运行 just-go install allure")
                 return 1
         else:
-            print("  系统无 winget，请手动安装：")
-            print("    下载 https://adoptium.net/ 并确保 java 在 PATH")
-            return 1
+            # Linux 默认包管理工具为 apt：自动安装 OpenJDK 17（headless 运行时即可）
+            if sys.platform.startswith("linux") and shutil.which("apt-get"):
+                cmd = ["apt-get", "install", "-y", "openjdk-17-jre-headless"]
+                print("  尝试 apt 自动安装 OpenJDK 17：")
+                print(f"    {' '.join(cmd)}（无权限时请手动加 sudo 执行）")
+                rc = subprocess.call(cmd)
+                if rc == 0:
+                    java = shutil.which("java")
+                    if java:
+                        print(f"  [OK] Java：{java}")
+                    else:
+                        print("  安装完成但当前终端尚未刷新 PATH，请新开终端后重新运行 just-go install allure")
+                        return 1
+                else:
+                    print("  apt 安装未完成（可能缺少权限），请手动执行：")
+                    print("    sudo apt-get install -y openjdk-17-jre-headless")
+                    return 1
+            else:
+                print("  系统无 winget/apt，请手动安装：")
+                print("    下载 https://adoptium.net/ 并确保 java 在 PATH")
+                return 1
     print(f"  [OK] Java：{java}")
 
     install_dir = os.path.join(os.path.expanduser("~"), ".just-go", "allure")
@@ -375,7 +397,23 @@ def _install_ffmpeg() -> int:
         print(f"  winget 安装未完成（退出码 {rc}），可稍后重试或手动安装：")
         print("    下载 https://www.gyan.dev/ffmpeg/builds/ 的 release 版 zip，解压后把 bin 目录加入 PATH")
         return 1
-    print("  未检测到 ffmpeg 且系统无 winget，请手动安装：")
+    # Linux 默认包管理工具为 apt：自动安装 ffmpeg
+    if sys.platform.startswith("linux") and shutil.which("apt-get"):
+        cmd = ["apt-get", "install", "-y", "ffmpeg"]
+        print("  未检测到 ffmpeg，尝试 apt 安装：")
+        print(f"    {' '.join(cmd)}（无权限时请手动加 sudo 执行）")
+        rc = subprocess.call(cmd)
+        if rc == 0:
+            exe = shutil.which("ffmpeg")
+            if not exe:
+                print("  安装完成但当前终端尚未刷新 PATH，请新开终端后重新运行本命令")
+                return 1
+            print(f"  [OK] ffmpeg：{exe}")
+            return 0
+        print("  apt 安装未完成（可能缺少权限），请手动执行：")
+        print("    sudo apt-get install -y ffmpeg")
+        return 1
+    print("  未检测到 ffmpeg 且系统无 winget/apt，请手动安装：")
     print("    下载 https://www.gyan.dev/ffmpeg/builds/ 的 release 版 zip，解压后把 bin 目录加入 PATH")
     return 1
 
@@ -442,8 +480,8 @@ def _build_templates(mode: str) -> tuple:
                 "pages/base_page.py": _load_template(
                     os.path.join("gui", "pages", "base_page.py")
                 ),
-                "pages/module_page/page.py": _load_template(
-                    os.path.join("gui", "pages", "module_page", "page.py")
+                "pages/module.py": _load_template(
+                    os.path.join("gui", "pages", "module.py")
                 ),
                 "tag/module.csv": _load_template(
                     os.path.join("gui", "tag", "module.csv")
@@ -457,8 +495,11 @@ def _build_templates(mode: str) -> tuple:
                 "apis/__init__.py": _load_template(
                     os.path.join("api", "apis", "__init__.py")
                 ),
-                "apis/module/api.py": _load_template(
-                    os.path.join("api", "apis", "module", "api.py")
+                "apis/base.py": _load_template(
+                    os.path.join("api", "apis", "base.py")
+                ),
+                "apis/module.py": _load_template(
+                    os.path.join("api", "apis", "module.py")
                 ),
                 "cases/api/test_xxx.py": _load_template(
                     os.path.join("api", "cases", "api", "test_xxx.py")

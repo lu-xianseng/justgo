@@ -21,7 +21,7 @@ class CustomLogger:
         llog.remove()
         self.logs = []
         self.add_console_sink()
-        self.add_file_sink("\\".join([log_path, log_name]))
+        self.add_file_sink(os.path.join(log_path, log_name))
         # 收集 sink 只在此添加一次，避免 get_logger() 重复调用导致日志重复收集
         llog.add(
             self.collect_logs,
@@ -103,19 +103,20 @@ def log(cls):
 
         return wrapper
 
-    for base_cls in reversed(cls.mro()):  # 使用reversed确保从最基类开始处理
-        if base_cls.__name__ in ["object", cls.__name__]:
+    collected: dict = {}
+    for base_cls in reversed(cls.mro()):  # 从基类到自身：子类方法（含同名覆盖）最后收集，天然优先
+        if base_cls.__name__ == "object":
             continue
         for name, attr in base_cls.__dict__.items():
-            if callable(attr) and not name.startswith("__"):
-                if attr.__doc__ is None:
-                    raise TypeError(f"{cls.__name__}.{name} 缺少文档字符串")
-            if (
-                callable(attr)
-                and not name.startswith("__")
-                and not attr.__doc__.strip().startswith("__")
-            ):
-                setattr(cls, name, method_log_decorator(attr))
+            if not callable(attr) or name.startswith("__"):
+                continue
+            if attr.__doc__ is None:
+                raise TypeError(f"{cls.__name__}.{name} 缺少文档字符串")
+            if attr.__doc__.strip().startswith("__"):
+                continue
+            collected[name] = attr
+    for name, attr in collected.items():
+        setattr(cls, name, method_log_decorator(attr))
     return cls
 
 
