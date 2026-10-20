@@ -4,7 +4,7 @@
 版本号递增规则：修复 `x.y.patch+1`，新功能 `x.minor+1`，不兼容变更 `major+1`。
 发布到 PyPI 后同版本不可覆盖，发新版必须递增版本号。
 
-## [0.1.5] - 未发布
+## [0.1.5] - 2026-10-20
 
 ### 新增
 - 多浏览器支持：`config.run.browser_type`（chromium / firefox / webkit）
