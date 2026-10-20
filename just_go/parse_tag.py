@@ -9,6 +9,33 @@ from _pytest.nodes import Item
 from _pytest.python import Function
 from typing import Dict, List, Optional
 from just_go.settings import ROOTDIR
+from just_go.exceptions import TagError
+
+# 限定 star import 只导出公共类，避免框架命名空间被辅助符号污染
+__all__ = ["ParseTag", "UpdateTag"]
+
+
+class UpdateTag:
+    """tag 维护工具：为用例自动创建对应的 tag CSV 文件（含表头）"""
+
+    def create_tag_file(self, item: Item) -> Optional[str]:
+        """获取测试用例对应的CSV标记文件路径"""
+        test_file_path = item.location[0]
+        module_dir = os.path.dirname(test_file_path)
+        # 仅把路径首段 cases 替换为 tag（避免误伤模块目录名中含 cases 的情况）
+        module_dir = (
+            "tag" + module_dir[len("cases"):]
+            if module_dir.startswith("cases")
+            else module_dir
+        )
+        csv_path = os.path.join(ROOTDIR, module_dir + ".csv")
+        if not os.path.exists(csv_path):
+            with open(csv_path, "w", encoding="utf-8", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(
+                    ["用例ID", "用例级别", "场景", "跳过原因"]
+                )
+        return csv_path
 
 
 class ParseTag:
@@ -40,11 +67,10 @@ class ParseTag:
                     reader = csv.DictReader(f)
                     for row in reader:
                         # logger.debug(row)
-                        script_id = row.get('脚本ID', '').strip()
                         case_id = row.get('用例ID', '').strip()
-                        if script_id != case_id:
-                            raise Exception(f"脚本ID({script_id})与用例ID({case_id})不一致")
-                        tags[script_id] = {k: v.strip() for k, v in row.items()}
+                        if not case_id:
+                            raise TagError("用例ID不能为空")
+                        tags[case_id] = {k: v.strip() for k, v in row.items()}
                 if tags:
                     self.TEST_TAGS_CACHE[csv_path] = tags
                     # logger.info(f"已加载CSV文件: {csv_path}, 包含 {len(tags)} 个用例标记")
@@ -66,7 +92,12 @@ class ParseTag:
         """获取测试用例对应的CSV标记文件路径"""
         test_file_path = item.location[0]
         module_dir = os.path.dirname(test_file_path)
-        module_dir = module_dir.replace('cases', 'tag')
+        # 仅把路径首段 cases 替换为 tag（避免误伤模块目录名中含 cases 的情况）
+        module_dir = (
+            "tag" + module_dir[len("cases"):]
+            if module_dir.startswith("cases")
+            else module_dir
+        )
         csv_path = os.path.join(ROOTDIR, module_dir + ".csv")
         if csv_path in self.TEST_TAGS_CACHE:
             return csv_path
@@ -80,7 +111,7 @@ class ParseTag:
         """
         expression = expression.lower()
         tag_values = [str(v).lower() for k, v in tag_info.items()
-                      if v and k not in ['废弃', '跳过原因']]
+                      if v and k not in ['跳过原因']]
 
         def evaluate(tokens):
             stack = []

@@ -12,8 +12,8 @@ from typing import Optional
 import pytest
 import allure
 from importlib.metadata import version
-from just_go.settings import TMP_REPORT_PATH, REPORT_PATH, ROOTDIR, ALLURE_PATH, config
-from just_go.exceptions import SoftwareNotInstallError
+from just_go.settings import TMP_REPORT_PATH, REPORT_PATH, ROOTDIR, ALLURE_PATH
+from just_go.exceptions import SoftwareNotInstallError, RecordError
 
 
 class GenerateReport:
@@ -83,7 +83,8 @@ class GenerateReport:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        out_bytes = res.stdout.read() if res.wait() == 0 else res.stderr.read()
+        out_bytes, err_bytes = res.communicate()
+        out_bytes = out_bytes if res.returncode == 0 else err_bytes
         try:
             out = out_bytes.decode("utf-8")
         except UnicodeDecodeError:
@@ -93,7 +94,10 @@ class GenerateReport:
 
     def add_mark(self, item, item_config, tags):
         level = tags.get("用例级别", "").upper()
-        item.add_marker(allure.severity(self.LEVEL_MAP[level]))
+        # 用例级别缺失/非法时降级为 NORMAL，避免收集阶段 KeyError 崩溃
+        item.add_marker(
+            allure.severity(self.LEVEL_MAP.get(level, allure.severity_level.NORMAL))
+        )
         # 禅道用例地址属于测试项目，由测试项目通过环境变量注入，未配置时跳过用例链接
         test_case_base_url = os.environ.get("JUSTGO_TEST_CASE_BASE_URL")
         if test_case_base_url:
@@ -106,7 +110,7 @@ class GenerateReport:
         item.add_marker(allure.feature(tags.get("场景分类")))
         item.add_marker(allure.story(tags.get("场景描述")))
         for attr, value in tags.items():
-            if value and attr not in ["用例ID", "跳过原因", "废弃"]:
+            if value and attr not in ["用例ID", "跳过原因"]:
                 item_config.addinivalue_line("markers", f"{value}: {value}")
                 marker = getattr(pytest.mark, value, None)
                 if marker:
@@ -118,16 +122,11 @@ generate_report = GenerateReport()
 
 class Record:
     """
-    录屏管理器，支持两种后端（由 config.run.record_backend 指定，
-    可在测试项目 conftest.py 里赋值覆盖，默认值在 config.ini [run] 节）：
-    - playwright（默认，轻量）：Playwright 内置录屏产出 webm，无需安装 ffmpeg，
-      录制由 page fixture 通过 record_video_dir 控制，视频文件在浏览器关闭后
-      由 fixture 写入 record_file；
-    - ffmpeg（备用）：调用 ffmpeg/gdigrab 抓取桌面，需要 ffmpeg 环境。
+    录屏管理器：统一调用系统 ffmpeg（gdigrab）抓取桌面，产出 mp4/webm。
+    需要系统已安装 ffmpeg（`just-go install ffmpeg` 自动安装或手动加入 PATH）。
     """
 
     def __init__(self, framerate=15, source="desktop", out_type="mp4"):
-        # 后端不在此固化：每次使用时实时读取，支持项目 conftest 运行时覆盖
         self.__exe = None
         if out_type not in ["webm", "mp4"]:
             raise ValueError("out_type must be webm or mp4")
@@ -138,30 +137,12 @@ class Record:
         self.__cmd = ""
         self.__process: Optional[subprocess.Popen] = None
         self.__out_file = None
-        self.__record_file = None
         self.__recording = False
-
-    def _backend(self) -> str:
-        """实时读取录屏后端（支持测试项目 conftest 里 config.run.record_backend 覆盖）"""
-        backend = getattr(config.run, "record_backend", "playwright")
-        if backend not in ["playwright", "ffmpeg"]:
-            raise ValueError("record_backend 仅支持 playwright 或 ffmpeg")
-        return backend
-
-    @property
-    def backend(self) -> str:
-        return self._backend()
 
     @property
     def attachment_type(self):
-        """allure 附件类型：playwright 产出 webm，ffmpeg 产出 mp4/webm"""
-        if self._backend() == "playwright":
-            return allure.attachment_type.WEBM
-        return allure.attachment_type.MP4
-
-    def set_record_file(self, path: str) -> None:
-        """playwright 后端：由 page fixture 在浏览器关闭后写入视频文件路径"""
-        self.__record_file = path
+        """allure 附件类型：ffmpeg 产出 mp4/webm"""
+        return allure.attachment_type.MP4 if self.__out_type == "mp4" else allure.attachment_type.WEBM
 
     def _ensure_ffmpeg(self):
         """确认 ffmpeg 可用并构造基础命令"""
@@ -219,12 +200,7 @@ class Record:
         return f"{time.time()}.{self.__out_type}"
 
     def start(self, path):
-        """启动录屏"""
-        if self._backend() == "playwright":
-            # playwright 后端：页面录制由 page fixture 的 record_video_dir 控制，
-            # 这里仅记录开始状态
-            self.__recording = True
-            return
+        """启动录屏（ffmpeg/gdigrab 抓取桌面）"""
         if not self.__recording:
             self._ensure_ffmpeg()
             self.__out_file = os.path.join(path, self.__generate_name)
@@ -238,16 +214,12 @@ class Record:
             )
             if self.__process.poll() is not None:
                 stderr = self.__process.stderr.read()
-                raise Exception(f"录屏启动失败: {stderr}")
+                raise RecordError(f"录屏启动失败: {stderr}")
             time.sleep(0.1)
             self.__recording = True
 
     def stop(self):
         """停止录屏"""
-        if self._backend() == "playwright":
-            # playwright 后端：视频由浏览器关闭时自动 finalize，此处仅复位状态
-            self.__recording = False
-            return
         if self.__recording:
             try:
                 self.__process.stdin.write("q\n")
@@ -269,7 +241,7 @@ class Record:
                 self.__process.stderr.close()
                 self.__process = None
         else:
-            raise Exception("未开始录屏")
+            raise RecordError("未开始录屏")
 
     def restart(self, path):
         """重启录屏"""
@@ -282,11 +254,6 @@ class Record:
     @property
     def record_file(self):
         """获取录屏文件"""
-        if self._backend() == "playwright":
-            # playwright 后端：由 page fixture 在浏览器关闭后设置
-            if self.__record_file and os.path.exists(self.__record_file):
-                return self.__record_file
-            return None
         if not self.__out_file:
             return None
         if os.path.exists(self.__out_file):

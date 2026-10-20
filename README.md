@@ -1,46 +1,32 @@
 # just-go
 
-Web 自动化测试框架：**框架与测试代码分离，一条命令指定测试项目执行自动化测试，自动产出报告。**
+Web 自动化测试框架：**框架与测试代码分离，一条命令跑指定测试项目，自动产出 allure 报告（含录屏、失败截图、日志）。**
 
 ```bash
-pip install just-go
-just-go install        # 安装运行依赖（浏览器、报告工具等）
-just-go init SHOP-TEST # 生成测试项目骨架
-just-go run SHOP-TEST  # 执行测试项目
+pip install just-go      # 1. 安装框架
+just-go install          # 2. 安装运行依赖（浏览器/报告工具/ffmpeg）
+just-go init SHOP-TEST   # 3. 生成测试项目骨架
+just-go run SHOP-TEST    # 4. 执行测试项目
 ```
 
-框架只装一次，测试项目单独存放、各自独立。升级框架、换机器、发布到 CI，都不影响测试代码本身。
+框架只装一次、全局复用；测试项目单独存放、各自独立。升级框架、换机器、接入 CI，都不影响已写好的测试代码。
 
-## 它解决什么问题
+---
 
-传统的 Web 自动化测试，框架代码和测试用例通常混在同一个项目里：换一个被测系统就要复制一份框架，框架升级要逐个项目改，别人接手还得先读懂整套源码。
+## 核心特性
 
-just-go 把这两层拆开：
-
-```
-┌────────────────────┐        ┌────────────────────┐
-│  just-go（框架）     │  run   │  测试项目（业务代码） │
-│  安装一次，全局复用  │ ──────▶│  pages / cases /    │
-│  pytest/报告/录屏/  │        │  apis / tag         │
-│  tag 筛选/配置      │        │  只写被测系统相关    │
-└────────────────────┘        └────────────────────┘
-```
-
-框架负责跑测试、出报告、管环境；测试项目只负责写被测系统（页面对象、接口封装、用例）。
-
-## 主要优点
-
-| 优点 | 说明 |
+| 特性 | 说明 |
 | --- | --- |
-| **框架与测试代码分离** | 框架独立安装、独立升级；测试项目里没有任何框架源码，换项目、换人维护成本低 |
-| **PO 模式脚手架** | `just-go init` 一键生成项目骨架，支持 GUI / API / 两者全要；基类下沉公共逻辑，写页面和用例时只关注业务 |
-| **同步 / 异步用例都支持** | `def` 或 `async def` 混着写都可以，无需安装 pytest-asyncio，框架自动路由 |
-| **内置轻量录屏** | 默认用 Playwright 内置录制（零额外依赖），跑完自动把 webm 附到报告；不想装 ffmpeg 也能录屏 |
-| **allure 报告开箱即用** | 自动生成 HTML 报告，附失败截图、录屏；报告工具和 Java 由 `just-go install` 自动安装 |
-| **tag 用例筛选** | 项目 `tag/` 目录 + CSV 登记用例，`--tag` 表达式筛选（支持 and/or），按级别/场景挑着跑 |
-| **产物输出可重定向** | 日志、报告、录屏默认输出在测试项目根；CI 归档时用 `--output` 重定向到指定目录 |
-| **环境管理省心** | pipenv 虚拟环境自动引导；`just-go install core/playwright/allure/ffmpeg` 按需安装，缺什么装什么 |
-| **配置都在项目里** | 被测地址、录屏后端、慢速等待都在测试项目配置，不动框架本身 |
+| **框架与测试代码分离** | 测试项目里没有任何框架源码；框架独立安装升级，项目之间互不影响 |
+| **PO 模式脚手架** | `just-go init` 一键生成 GUI / API / 全量骨架，基类下沉公共逻辑，页面/用例只写业务 |
+| **同步 / 异步用例混写** | `def` 与 `async def` 任意混用，框架自动路由，无需 pytest-asyncio |
+| **桌面录屏（ffmpeg）** | 基于系统 ffmpeg（gdigrab）录制整个桌面，产出 mp4 自动附到报告；`just-go install ffmpeg` 一键安装 |
+| **allure 报告开箱即用** | 自动生成 HTML 报告，附失败截图、录屏、用例日志；报告工具与 Java 由 `just-go install` 自动处理 |
+| **tag 用例筛选** | 项目 `tag/` 目录 + CSV 登记用例，`--tag "L1 and smoke"` 表达式筛选，支持 and/or/括号 |
+| **产物可重定向** | 日志/报告/录屏默认输出在测试项目根，CI 场景用 `--output` 重定向归档 |
+| **环境管理省心** | pipenv 虚拟环境自动引导；`just-go install core/playwright/allure/ffmpeg` 缺什么装什么 |
+
+---
 
 ## 快速开始
 
@@ -48,98 +34,163 @@ just-go 把这两层拆开：
 
 ```bash
 pip install just-go
+just-go install          # 全部运行依赖：核心库 / Chromium / allure / ffmpeg
 ```
 
-装完先装运行依赖（浏览器、报告工具）：
-
-```bash
-just-go install          # 全部依赖
-```
+> 首次执行会提示创建 pipenv 虚拟环境，按提示确认即可；后续命令自动复用。
 
 ### 2. 初始化测试项目
 
 ```bash
-just-go init SHOP-TEST                     # GUI 骨架（页面对象 + 页面用例）
-just-go init "SHOP-API[api]"               # API 骨架（接口封装 + 接口用例）
-just-go init "SHOP-ALL[all]"               # 两种都生成
+just-go init SHOP-TEST             # GUI 骨架（页面对象 + 页面用例），默认类型
+just-go init "SHOP-API[api]"       # API 骨架（接口封装 + 接口用例）
+just-go init "SHOP-ALL[all]"       # 两种都生成
 ```
 
-会在当前目录生成一个空白脚手架：目录结构、配置文件、开发指南都在，类名、方法名、业务逻辑由你按项目内 README 的步骤填充。
+生成的是**空白脚手架**：目录结构、配置、开发指南齐全，类名/方法名/业务逻辑由你按项目内 README 填充。
 
 ### 3. 配置被测地址
 
-打开测试项目的 `conftest.py`，把 `JUSTGO_TEST_BASE_URL` 改成被测系统实际地址。
+编辑测试项目的 `conftest.py`：
+
+```python
+os.environ.setdefault("JUSTGO_TEST_BASE_URL", "http://192.168.1.10:8080")  # 被测系统地址（必改）
+```
 
 ### 4. 注册并运行
 
 ```bash
-just-go add shop D:\ProjectCode\SHOP-TEST   # 注册，名字自己起
+just-go add shop D:\ProjectCode\SHOP-TEST   # 注册项目（名字自己起）
 just-go run shop                            # 执行全部用例
-just-go run shop --tag "smoke and L1"       # 按 tag 筛选
-just-go run shop --collect-only             # 只收集用例，不执行
+just-go run shop --tag "smoke and L1"       # 按 tag 筛选执行
+just-go run shop --collect-only             # 只收集用例不执行
 ```
 
-跑完打开 `reports/` 下最新目录里的 `index.html` 看报告，录屏、失败截图都在里面。
+跑完打开项目根 `reports/` 下最新目录的 `index.html` 查看报告，录屏、失败截图、日志都在里面。
+
+---
 
 ## 用例怎么写
 
-同步（默认）：
+`page` 是框架提供的 fixture（Playwright 页面），同步 / 异步两种写法可以混用：
 
 ```python
+# 同步（默认）
 def test_login(page):
     page.goto("https://example.com")
     page.fill("#user", "admin")
     assert "登录成功" in page.content()
-```
 
-异步，用 `await`：
-
-```python
+# 异步：用例内用 await
 async def test_login(page):
     await page.goto("https://example.com")
     await page.fill("#user", "admin")
     assert "登录成功" in await page.content()
 ```
 
-`page` 是框架提供的 fixture，两种写法在一个项目里可以混用。
+内置断言（`from just_go import AssertCommon`）：
+
+```python
+common = AssertCommon()
+common.assert_equal("ok", resp.get("status"))        # 相等
+common.assert_in("手机", page_text)                  # 包含
+common.assert_re_check_equal(r"\d{6}", page_text)    # 正则匹配
+```
+
+框架还提供自定义异常体系（基类 `JustGoError`），测试项目可统一捕获框架错误：
+
+```python
+from just_go import JustGoError, RequestError, RecordError
+
+try:
+    ...
+except JustGoError as e:   # 捕获所有框架自定义异常
+    ...
+```
+
+> 可选：用例基类声明 `metaclass=CaseControl` 可开启命名校验（用例方法名须包含用例文件名）。
+
+---
+
+## 录屏
+
+- 开启：`pytest.ini` 中的 `--record=yes`（骨架默认开启，删掉该行即关闭）；
+  临时开关：`just-go run shop --record=no`
+- 方式：系统 ffmpeg 以 `gdigrab` 录制**整个桌面**，产出 mp4 自动附到 allure 报告
+- 依赖：系统需已安装 ffmpeg 且加入 PATH
+
+```bash
+just-go install ffmpeg    # 自动安装（winget），装完需新开终端刷新 PATH
+```
+
+---
+
+## tag 用例筛选（可选）
+
+不用 tag 也能跑：项目没有 `tag/` 目录时，用例全部直接执行。需要筛选时：
+
+**1. 建目录与 CSV**（`just-go init` 骨架自带空表）：
+
+```
+tag/
+└─ module.csv            # 一个用例模块一个 CSV，与 cases/<模块>/ 对应
+```
+
+**2. 登记用例**（4 列）：
+
+```csv
+用例ID,用例级别,场景,跳过原因
+1001,L1,登录,
+1002,L2,订单,接口未就绪
+```
+
+- `用例ID` 与用例函数名 `test_<模块>_<用例ID>` 中的 ID 对应（如 `test_login_1001` ↔ `1001`）
+- `跳过原因` 填写后该用例自动跳过
+- 登记后即可筛选执行：
+
+```bash
+just-go run shop --tag "L1 and smoke"          # 逻辑与
+just-go run shop --tag "L1 or L2"              # 逻辑或
+just-go run shop --tag "(L1 or L2) and smoke"  # 括号组合
+```
+
+---
 
 ## 常用命令
 
 | 命令 | 作用 |
 | --- | --- |
-| `just-go install [core\|playwright\|allure\|ffmpeg\|all]` | 安装/检查运行依赖 |
+| `just-go install [core\|playwright\|allure\|ffmpeg\|all]` | 安装/检查运行依赖（默认 all） |
 | `just-go init <目录[类型]>` | 初始化测试项目骨架（gui/api/all，默认 gui） |
 | `just-go add <名称> <路径>` | 注册测试项目 |
-| `just-go list` | 列出已注册项目 |
+| `just-go list` | 列出已注册项目（含路径有效性标记） |
 | `just-go remove <名称>` | 取消注册 |
-| `just-go run <名称\|路径> [pytest参数]` | 执行测试项目，其余参数透传给 pytest |
+| `just-go run <名称\|路径> [pytest参数]` | 执行测试项目，其余参数透传给 pytest（`--tag`/`--record`/`--collect-only` 等） |
+
+---
 
 ## 配置
 
+### 框架级（`just_go/configs/config.ini`，一般不用改）
+
+| 配置项 | 说明 |
+| --- | --- |
+| `framework.browser_path` | 指定浏览器可执行文件路径（默认用 Playwright 自带 Chromium） |
+| `framework.allure_path` | allure 工具路径（留空自动查找 PATH 或 `~/.just-go/allure`） |
+| `run.slow_time` | 操作慢速等待毫秒数（默认 500） |
+| `run.show_browser` | `True` 显示浏览器窗口 / `False` 无头运行 |
+
+### 项目级
+
 | 配置项 | 位置 | 说明 |
 | --- | --- | --- |
-| 被测系统地址 | 项目 `conftest.py` 的 `JUSTGO_TEST_BASE_URL` | 必改 |
-| 用例链接前缀 | 项目 `conftest.py` 的 `JUSTGO_TEST_CASE_BASE_URL` | 可选，报告带用例链接 |
-| 录屏后端 | 项目 `pytest.ini` 的 `record_backend` | `playwright`（内置，默认）或 `ffmpeg`（桌面录屏） |
-| 慢速 / 无头模式 | 项目 `conftest.py` 里 `config.run.slow_time` 等 | 运行时覆盖，只对本次运行生效 |
-| 产物输出目录 | `just-go run <项目> --output <目录>` | 重定向日志/报告/录屏，适合 CI 归档 |
+| `JUSTGO_TEST_BASE_URL` | 项目 `conftest.py` | 被测系统地址（**必改**），用于页面跳转基址 + 报告环境信息 |
+| `JUSTGO_TEST_CASE_BASE_URL` | 项目 `conftest.py` | 测试管理平台（如禅道）用例链接前缀（可选） |
+| `--record` | 项目 `pytest.ini` | 录屏开关（默认开） |
+| `config.run.slow_time` 等 | 项目 `conftest.py` | 运行时覆盖框架配置，只对本次运行生效 |
+| `--output <目录>` | `just-go run` | 产物输出根目录，按 输出根/项目名 分子目录，多项目互不干扰 |
 
-测试项目自身的 Python 依赖（如 redis、pymysql）直接装到运行 just-go 的 Python 里即可。
-
-## 测试项目组织
-
-`just-go init` 生成的标准结构（GUI）：
-
-```
-SHOP-TEST/
-├─ conftest.py            # 注入被测地址、声明框架插件
-├─ pytest.ini             # pytest 配置、录屏开关
-├─ cases/                 # 用例（含 base_case 用例基类）
-├─ pages/                 # 页面对象（含 base_page 页面基类）
-└─ tag/                   # 用例标记（可选）
-```
-
-框架对测试项目**不强制结构**：只要项目根有 `conftest.py` 声明框架插件就能跑。`init` 生成的结构是推荐起点，你完全可以根据自己的项目调整。
+---
 
 ## 运行产物
 
@@ -147,16 +198,53 @@ SHOP-TEST/
 
 ```
 SHOP-TEST/
-├─ logs/           # 运行日志
-├─ reports/        # allure HTML 报告
-└─ cache/          # allure 原始结果、录屏、截图
+├─ logs/           # 运行日志（loguru，每次运行一个时间戳文件，10MB 滚动）
+├─ reports/        # allure HTML 报告（每次运行一个时间戳目录）
+└─ cache/          # allure 原始结果（report/）、临时录屏与截图（temp/）
 ```
 
-CI 或只读目录场景，用 `--output` 重定向到指定目录（按 输出根/项目名 分子目录，多项目互不干扰）。
+CI / 只读目录场景：`just-go run shop --output D:\产物目录`。
+
+---
 
 ## 环境要求
 
 - Python 3.10+
-- 浏览器由 `just-go install playwright` 自动安装
-- allure 报告需要 Java，`just-go install allure` 检测到缺失会自动尝试安装（winget 装 Temurin JDK），装不了会给出手动下载指引
-- ffmpeg 仅在使用 `record_backend = ffmpeg` 桌面录屏时需要，可选
+- 浏览器：`just-go install playwright` 自动安装 Chromium
+- allure 报告需 Java：`just-go install allure` 检测缺失会自动尝试安装（winget 装 Temurin JDK），装不了会给出手动下载指引
+- ffmpeg：录屏必需，`just-go install ffmpeg` 自动安装（winget），或手动下载加入 PATH
+
+> 测试项目自身的 Python 依赖（如 redis、pymysql）由项目自行安装到运行环境，框架不代管。
+
+---
+
+## 常见问题
+
+**录屏没有产出 / 提示 ffmpeg 未安装？**
+运行 `just-go install ffmpeg` 自动安装（winget），装完**新开终端**刷新 PATH 再跑。
+
+**allure 报告没生成？**
+`just-go install allure` 安装报告工具（需要 Java，检测缺失会自动尝试装 Temurin JDK）。
+报告生成依赖 allure 工具；即使未装，allure 原始结果仍保留在 `cache/report/`。
+
+**浏览器起不来 / 提示 playwright 相关错误？**
+运行 `just-go install playwright` 安装 Chromium；若配置了 `config.ini` 的 `browser_path`，
+确认该路径的浏览器可执行文件存在；无头模式看不到窗口属正常（`config.run.show_browser`）。
+
+**用例收集数量为 0？**
+`just-go init` 生成的是空白脚手架，填充前收集到 0 个用例属正常。确认用例函数名以
+`test_` 开头、位于 `testpaths`（默认 `cases/`）目录下。
+
+**用例被自动跳过？**
+检查对应 `tag/<模块>/<模块名>.csv` 的「跳过原因」列是否已填写。
+
+**`--tag` 筛选不生效？**
+`--tag` 依赖 `tag/` 目录与登记数据：确认 CSV 已登记该用例（用例ID 与函数名中 ID 一致），
+表达式不区分大小写，支持 `and` / `or` / 括号组合。
+
+**想直接用 pytest 而不是 just-go run？**
+可以。项目根 `conftest.py` 已声明框架插件，在项目根直接敲 `pytest` 即可，效果相同。
+
+**导入 just_go 报 `SoftwareNotInstallError`？**
+说明依赖（如 playwright）未安装到当前环境：在框架环境内运行 `just-go install`，
+或确认当前 Python 与框架运行环境一致（pipenv 环境会自动引导）。

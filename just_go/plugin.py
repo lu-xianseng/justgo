@@ -17,9 +17,7 @@ just-go 框架的 pytest 插件入口。
 import asyncio
 import inspect
 from just_go import *
-from just_go.parse_tag import ParseTag  # 显式使用新版 ParseTag（tag/ 目录限定 + 可选模式），
-# 覆盖 from just_go import * 可能绑定到 tag_manage 旧版 ParseTag 的情况
-from just_go.settings import config as justgo_config  # pytest_configure 参数名遮蔽 config，用别名
+from just_go.parse_tag import ParseTag  # 显式导入，确保使用 tag/ 目录限定的新版 ParseTag
 
 parse_tag = ParseTag()
 enable_record = False
@@ -83,14 +81,6 @@ def pytest_collection_modifyitems(session, config, items):
             skipped.append(item)
             continue
 
-        is_deprecated = tag_info.get("废弃", None)
-        if is_deprecated and not is_deprecated.strip().lower() in ["true", "yes"]:
-            pytest.exit(f"用例[{item.name}]，标记废弃关键字错误，仅支持：true/yes")
-        if is_deprecated:
-            item.add_marker(pytest.mark.skip(reason="用例废弃"))
-            skipped.append(item)
-            continue
-
         if tag_expression:
             matches = parse_tag.evaluate_expression(tag_expression, tag_info)
             if not matches:
@@ -118,12 +108,6 @@ def pytest_addoption(parser):
         choices=["yes", "no"],
         help="启用录屏功能 (yes/no)",
     )
-    # 录屏后端由测试项目在 pytest.ini 指定（默认 playwright 内置录屏；ffmpeg 需安装）
-    parser.addini(
-        "record_backend",
-        "录屏后端：playwright（内置，默认）或 ffmpeg（桌面录屏，需安装 ffmpeg）",
-        default="playwright",
-    )
 
 
 @pytest.hookimpl(trylast=True)
@@ -139,8 +123,6 @@ def pytest_configure(config):
     if config.getoption("--record") == "yes":
         global enable_record
         enable_record = True
-    # 录屏后端：项目 pytest.ini 的 record_backend 优先，写入运行时配置供 Record 实时读取
-    justgo_config.run.record_backend = config.getini("record_backend")
 
 
 def pytest_runtest_call(item):
@@ -234,11 +216,6 @@ def _page_setup() -> dict:
         "no_viewport": True,
         "user_data_dir": temp_dir,
     }
-    if enable_record and record.backend == "playwright":
-        # Playwright 内置录屏：零依赖，产出 webm；视频目录独立于 user_data_dir
-        video_dir = tempfile.mkdtemp(prefix="playwright_video_")
-        setup["record_video_dir"] = video_dir
-        setup["record_video_size"] = {"width": 1280, "height": 720}
     if config.framework.browser_path:
         setup["executable_path"] = config.framework.browser_path
     return setup
@@ -258,12 +235,6 @@ def _sync_page_lifecycle(page_setup: dict):
     if enable_record:
         record.stop()
     browser.close()
-    if enable_record and record.backend == "playwright":
-        # 视频在浏览器上下文关闭后 finalize，需在 driver 停止前读取路径
-        try:
-            record.set_record_file(_page.video.path())
-        except Exception as e:
-            logger.error(f"获取录屏文件失败: {e}")
     driver.stop()
     shutil.rmtree(page_setup["user_data_dir"], ignore_errors=True)
 
@@ -290,13 +261,6 @@ def _async_page_lifecycle(request, page_setup: dict):
     if enable_record:
         record.stop()
     loop.run_until_complete(browser.close())
-    if enable_record and record.backend == "playwright":
-        try:
-            # async API 的 Video.path() 是协程，需在事件循环中执行
-            video_path = loop.run_until_complete(_page.video.path())
-            record.set_record_file(video_path)
-        except Exception as e:
-            logger.error(f"获取录屏文件失败: {e}")
     loop.run_until_complete(driver.stop())
     loop.close()
     shutil.rmtree(page_setup["user_data_dir"], ignore_errors=True)

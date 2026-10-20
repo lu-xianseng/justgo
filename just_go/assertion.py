@@ -52,9 +52,9 @@ class AssertCommon:
         logger.info(f"正则匹配成功，pattern: {pattern}, actual_text: {actual_text}")
 
     def assert_re_check_not_equal(self, pattern, actual_text):
-        """正则匹配不相等"""
+        """断言实际文本不匹配正则（反向断言）"""
         if re.search(pattern, actual_text):
             raise AssertionError(
-                f"正则匹配失败，pattern: {pattern}, actual_text: {actual_text}"
+                f"正则不应匹配但实际匹配，pattern: {pattern}, actual_text: {actual_text}"
             )
-        logger.info(f"正则匹配成功，pattern: {pattern}, actual_text: {actual_text}")
+        logger.info(f"正则未匹配（符合预期），pattern: {pattern}")

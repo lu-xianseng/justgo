@@ -20,6 +20,11 @@ class CustomLogger:
         self.logs = []
         self.add_console_sink()
         self.add_file_sink("\\".join([log_path, log_name]))
+        # 收集 sink 只在此添加一次，避免 get_logger() 重复调用导致日志重复收集
+        llog.add(
+            self.collect_logs,
+            format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | - {message}",
+        )
 
     def __call__(self, msg):
         self.logs.append(msg)
@@ -59,7 +64,7 @@ class CustomLogger:
         将收集到的日志附加到Allure报告中。
         """
         if self.logs:
-            all_logs = "".join(self.logs)  # 使用''连接所有日志条目
+            all_logs = "\n".join(str(x) for x in self.logs)  # 逐条转字符串并用换行分隔
             allure.attach(
                 all_logs, name=section_name, attachment_type=allure.attachment_type.TEXT
             )
@@ -67,13 +72,8 @@ class CustomLogger:
 
     def get_logger(self):
         """
-        返回配置好的logger实例，并添加收集日志的功能。
+        返回配置好的logger实例（收集sink已在初始化时添加，不会重复）。
         """
-        # 添加自定义sink来收集日志
-        llog.add(
-            self.collect_logs,
-            format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | - {message}",
-        )
         return llog
 
 

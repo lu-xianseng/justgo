@@ -9,9 +9,10 @@ from just_go.request_utils import *
 from just_go.assertion import AssertCommon
 from just_go.controller import CaseControl
 from just_go.logger import *
-from just_go.tag_manage import *
+from just_go.parse_tag import *
 from just_go.tools import *
 from just_go.settings import *
+from just_go.exceptions import *
 from just_go.mock import *
 
 if os.path.exists(TMP_REPORT_PATH):

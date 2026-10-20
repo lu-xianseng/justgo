@@ -142,8 +142,8 @@ def cmd_run(args) -> int:
 
 # ---------------------------------------------------------------------------
 # just-go install：框架依赖安装 / 检查（pipenv 管理虚拟环境）
-# 组件：core（框架核心 Python 依赖）| playwright（浏览器 + 录制编码器）|
-#       allure（报告工具）| ffmpeg（桌面录屏后端，可选）| all（全部，默认）
+# 组件：core（框架核心 Python 依赖）| playwright（浏览器）|
+#       allure（报告工具）| ffmpeg（桌面录屏编码器，录屏必需）| all（全部，默认）
 # ---------------------------------------------------------------------------
 
 def _pipenv_venv_path() -> str | None:
@@ -254,22 +254,16 @@ def _install_all_py() -> int:
 
 
 def _install_playwright() -> int:
-    """安装 Playwright 浏览器与录制编码器（webm 录屏依赖）"""
-    print("==> 安装 Playwright 浏览器与录制编码器")
-    rc = 0
-    for target, desc in (
-        ("chromium", "Chromium 浏览器"),
-        ("ffmpeg", "录制编码器 ffmpeg（webm 视频必需）"),
-    ):
-        cmd = [sys.executable, "-m", "playwright", "install", target]
-        print(f"    {' '.join(cmd)}")
-        r = subprocess.call(cmd)
-        if r != 0:
-            print(f"    [失败] {desc} 安装未完成（退出码 {r}），可稍后重试本命令")
-            rc = r
-    if rc == 0:
-        print("    已安装到 %LOCALAPPDATA%\\ms-playwright；版本与框架 playwright 库自动匹配")
-    return rc
+    """安装 Playwright 浏览器（Chromium）"""
+    print("==> 安装 Playwright 浏览器（Chromium）")
+    cmd = [sys.executable, "-m", "playwright", "install", "chromium"]
+    print(f"    {' '.join(cmd)}")
+    rc = subprocess.call(cmd)
+    if rc != 0:
+        print(f"    [失败] Chromium 安装未完成（退出码 {rc}），可稍后重试本命令")
+        return rc
+    print("    已安装到 %LOCALAPPDATA%\\ms-playwright；版本与框架 playwright 库自动匹配")
+    return 0
 
 
 # 默认锁定的 allure 版本（已验证可用）；版本与框架解耦，用户可随时升级/降级
@@ -356,8 +350,8 @@ def _install_allure(version: str = None) -> int:
 
 
 def _install_ffmpeg() -> int:
-    """检查/安装系统 ffmpeg（仅 record_backend=ffmpeg 桌面录屏后端需要）"""
-    print("==> 检查系统 ffmpeg（桌面录屏后端使用；Playwright 录制无需）")
+    """检查/安装系统 ffmpeg（桌面录屏必需）"""
+    print("==> 检查系统 ffmpeg（桌面录屏必需）")
     exe = shutil.which("ffmpeg")
     if exe:
         print(f"  [OK] ffmpeg：{exe}")
@@ -427,7 +421,7 @@ COMMON_TEMPLATES = {
 - JUSTGO_TEST_CASE_BASE_URL：测试管理平台（如禅道）用例链接前缀，写入报告用例链接（可选）
 
 可选配置（在项目里改，不用动框架）：
-- 录屏后端：在 pytest.ini 里指定 record_backend（playwright 内置 / ffmpeg 桌面录屏）
+- 录屏：pytest.ini 的 --record=yes 开启 ffmpeg 桌面录屏（需系统已安装 ffmpeg）
 - 其他框架配置项也可在此赋值：config.run.slow_time、config.run.show_browser 等
 """
 import os
@@ -439,7 +433,7 @@ os.environ.setdefault("JUSTGO_TEST_BASE_URL", "")
 # TODO: 可选，例如 https://zentao.example.com/case-view-{id}.html
 os.environ.setdefault("JUSTGO_TEST_CASE_BASE_URL", "")
 
-# 示例：慢速操作等待毫秒数 / 无头模式（录屏后端见 pytest.ini）
+# 示例：慢速操作等待毫秒数 / 无头模式
 # config.run.slow_time = 1000
 # config.run.show_browser = False
 
@@ -451,15 +445,13 @@ addopts=
     --color=auto
     --no-header
     --import-mode=importlib
-    # 默认开启录屏（Playwright 内置，零依赖，产出 webm 自动附到报告）；不需要可删除本行
+    # 默认开启录屏（ffmpeg 桌面录屏，产出 mp4 自动附到报告；需系统已安装 ffmpeg）；不需要可删除本行
     --record=yes
 console_output_style = count
 testpaths = cases
 python_files = test_*.py
 python_classes = Test*
 python_functions = test_*
-# 录屏后端：playwright（内置，默认）或 ffmpeg（桌面录屏，需 just-go install ffmpeg）
-record_backend = playwright
 ''',
     "cases/base_case.py": '''#!/usr/bin/env python3
 # coding=utf-8
@@ -476,10 +468,14 @@ record_backend = playwright
 """
 
 # 在这里定义你的用例基类，例如：
-#   class BaseCase:
+#   from just_go.controller import CaseControl
+#
+#   class BaseCase(metaclass=CaseControl):
 #       page_cls = None
 #       def open_page(self, page, path=""):
 #           ...
+# 说明：metaclass=CaseControl 可开启用例命名校验（用例方法名须包含用例文件名），
+#      不需要该校验时直接用 class BaseCase: 即可。
 ''',
     "README.md": '''# {name} 自动化测试项目
 
@@ -523,12 +519,13 @@ pytest
 | 被测系统地址 | conftest.py 的 JUSTGO_TEST_BASE_URL | 必改，页面跳转基址 + 报告环境信息 |
 | 用例链接前缀 | conftest.py 的 JUSTGO_TEST_CASE_BASE_URL | 可选 |
 | 录屏开关 | pytest.ini 的 --record | 默认开；删掉该行即关闭 |
-| 录屏后端 | pytest.ini 的 record_backend | 默认 playwright（内置录屏）；改 ffmpeg 需安装 ffmpeg |
+| 录屏方式 | 框架内置 | 统一使用系统 ffmpeg 桌面录屏（gdigrab），产出 mp4 附到报告；需已安装 ffmpeg（`just-go install ffmpeg`） |
 | 慢速/是否显示浏览器 | conftest.py 里 config.run.xxx | 运行时覆盖，优先级高于框架配置文件 |
 
 ## 运行产物
 
-默认输出到项目根下：`logs/`（日志）、`reports/`（allure 报告）、`cache/`（临时/截图/录屏）。
+默认输出到项目根下：`logs/`（日志）、`reports/`（allure HTML 报告）、
+`cache/`（allure 原始结果 report/、临时录屏与截图 temp/）。
 可重定向：`just-go run <名称> --output D:\\产物目录`。
 
 ## 依赖
@@ -632,7 +629,7 @@ GUI_TEMPLATES = {
 #       def get_search_result(self):
 #           ...
 ''',
-    "tag/module.csv": '''脚本ID,用例ID,用例级别,场景,跳过原因,废弃,其它
+    "tag/module.csv": '''用例ID,用例级别,场景,跳过原因
 ''',
 }
 
@@ -694,7 +691,7 @@ API_TEMPLATES = {
 #       data = module_api.login("admin", "123456")
 #       assert data["code"] == 0
 ''',
-    "tag/api.csv": '''脚本ID,用例ID,用例级别,场景,跳过原因,废弃,其它
+    "tag/api.csv": '''用例ID,用例级别,场景,跳过原因
 ''',
 }
 
@@ -785,6 +782,19 @@ class TestModule(BaseCase):
 - `page` 是框架提供的 fixture（Playwright 页面）：同步用例直接调用，
   异步用例 `async def test_xxx(page)` 用 `await page.xxx()`，两种写法都支持；
 - 通用能力按需在 `BasePage`/`BaseCase` 扩展（如公共登录、表格操作），页面和用例保持只写业务。
+
+### 4. 登记 tag（可选）
+不需要筛选可以跳过。需要时在 `tag/<模块>/<模块名>.csv` 登记该用例（4 列）：
+
+```
+用例ID,用例级别,场景,跳过原因
+1001,L1,模块搜索,
+```
+
+- 用例ID 与用例函数名 `test_<模块>_<用例ID>` 中的 ID 对应（框架按此匹配）；
+- `跳过原因` 填写后该用例自动跳过；
+- 登记后即可筛选：`just-go run <名称> --tag "L1 and 模块"`（支持 and/or/括号）；
+- 不想用 tag：删掉 `tag/` 目录即可，用例直接全部执行。
 '''
 
 
@@ -843,11 +853,11 @@ def test_login_1001():
 和 GUI 一样，在 `tag/<模块>/<模块名>.csv` 登记该用例：
 
 ```
-脚本ID,用例ID,用例级别,场景,跳过原因,废弃,其它
-1001,1001,L1,登录接口,,,
+用例ID,用例级别,场景,跳过原因
+1001,L1,登录接口,
 ```
 
-- 脚本ID 必须等于 用例ID（框架校验）；
+- 用例ID 与用例函数名 `test_<模块>_<用例ID>` 中的 ID 对应（框架按此匹配）；
 - 运行时可筛选：`just-go run <项目> --tag "L1 and 登录"`；
 - 不想用 tag：删掉 `tag/` 目录即可，用例直接全部执行。
 '''
@@ -954,8 +964,8 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="?",
         choices=["core", "playwright", "allure", "ffmpeg", "all"],
         default="all",
-        help="安装组件：core(框架核心Python依赖)/playwright(浏览器+录制编码器)/"
-        "allure(报告工具，下载到用户目录~/.just-go/allure)/ffmpeg(桌面录屏，可选)/all(全部，默认)",
+        help="安装组件：core(框架核心Python依赖)/playwright(浏览器)/"
+        "allure(报告工具，下载到用户目录~/.just-go/allure)/ffmpeg(桌面录屏编码器，录屏必需)/all(全部，默认)",
     )
     p_install.add_argument(
         "version",

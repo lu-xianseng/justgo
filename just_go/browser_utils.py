@@ -19,7 +19,9 @@ try:
     from playwright.sync_api import PageAssertions
     from playwright.sync_api import APIResponseAssertions
 except ImportError:
-    print("Please install playwright")
+    from just_go.exceptions import SoftwareNotInstallError
+
+    raise SoftwareNotInstallError("playwright")
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from just_go.logger import logger
 

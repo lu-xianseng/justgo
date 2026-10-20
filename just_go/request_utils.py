@@ -6,7 +6,8 @@ import requests
 from typing import Dict, Any, Optional, Union
 from requests import Response
 from requests.exceptions import RequestException
-from just_go import logger
+from just_go.logger import logger
+from just_go.exceptions import RequestError
 
 
 class Request:
@@ -24,7 +25,10 @@ class Request:
         self.timeout = timeout
 
     def __del__(self):
-        self.session_close()
+        try:
+            self.session_close()
+        except Exception:
+            pass
 
     def session_close(self):
         """关闭连接"""
@@ -75,7 +79,7 @@ class Request:
             return response
         except RequestException as e:
             logger.error(f"请求错误: {str(e)}")
-            raise BaseException(f"请求错误: {str(e)}")
+            raise RequestError(f"请求错误: {str(e)}")
 
     def get(
         self,
