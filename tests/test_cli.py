@@ -29,6 +29,7 @@ def test_project_venv_path_ok(tmp_path, monkeypatch):
     proj = _mk_project(tmp_path)
     venv = tmp_path / "venvs" / "demo"
     venv.mkdir(parents=True)
+    monkeypatch.setattr(cli.shutil, "which", lambda name: "pipenv")
     monkeypatch.setattr(cli.subprocess, "run", lambda *a, **k: FakeResult(stdout=str(venv)))
     assert cli._project_venv_path(str(proj)) == str(venv)
 
@@ -37,6 +38,7 @@ def test_project_venv_path_no_pipfile(tmp_path, monkeypatch):
     """项目无 Pipfile 时不查询（返回 None）"""
     proj = _mk_project(tmp_path, with_pipfile=False)
     calls = []
+    monkeypatch.setattr(cli.shutil, "which", lambda name: "pipenv")
     monkeypatch.setattr(
         cli.subprocess, "run", lambda *a, **k: calls.append(a) or FakeResult(stdout="x")
     )
@@ -47,6 +49,7 @@ def test_project_venv_path_no_pipfile(tmp_path, monkeypatch):
 def test_project_venv_path_no_venv(tmp_path, monkeypatch):
     """pipenv --venv 无结果/目录不存在时返回 None"""
     proj = _mk_project(tmp_path)
+    monkeypatch.setattr(cli.shutil, "which", lambda name: "pipenv")
     monkeypatch.setattr(cli.subprocess, "run", lambda *a, **k: FakeResult(returncode=1))
     assert cli._project_venv_path(str(proj)) is None
 
