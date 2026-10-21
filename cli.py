@@ -171,7 +171,10 @@ def _ensure_pipenv_runtime(argv: list) -> None:
     """
     if _is_venv() or os.environ.get("JUSTGO_SKIP_PIPENV"):
         return
-    if any(a in ("-h", "--help") for a in argv):
+    if any(a in ("-h", "--help", "--version") for a in argv):
+        return
+    # 版本查询不依赖任何框架依赖，无需进入 pipenv 环境
+    if argv and argv[0] == "version":
         return
     if not os.path.exists(os.path.join(FRAMEWORK_ROOT, "Pipfile")):
         return
@@ -419,6 +422,33 @@ def _install_ffmpeg() -> int:
     return 1
 
 
+def _get_version() -> str:
+    """框架版本号：优先取已安装包元数据，源码运行（未安装 wheel）时回退读 pyproject.toml"""
+    try:
+        from importlib.metadata import PackageNotFoundError
+        from importlib.metadata import version as _pkg_version
+
+        return _pkg_version("just-go")
+    except PackageNotFoundError:
+        pass
+    try:
+        with open(
+            os.path.join(FRAMEWORK_ROOT, "pyproject.toml"), encoding="utf-8"
+        ) as f:
+            m = re.search(r'^version\s*=\s*"([^"]+)"', f.read(), re.MULTILINE)
+        if m:
+            return m.group(1)
+    except OSError:
+        pass
+    return "unknown"
+
+
+def cmd_version(_args) -> int:
+    """打印 just-go 框架版本号"""
+    print(f"just-go {_get_version()}")
+    return 0
+
+
 def cmd_install(args) -> int:
     comp = args.component or "all"
     version = getattr(args, "version", None)
@@ -562,7 +592,13 @@ def build_parser() -> argparse.ArgumentParser:
         prog="just-go",
         description="just-go Web 自动化测试框架：以命令方式指定测试项目执行自动化测试。",
     )
+    parser.add_argument(
+        "--version", action="version", version=f"just-go {_get_version()}"
+    )
     sub = parser.add_subparsers(dest="command", required=True)
+
+    p_version = sub.add_parser("version", help="显示框架版本号")
+    p_version.set_defaults(func=cmd_version)
 
     p_add = sub.add_parser("add", help="注册测试项目")
     p_add.add_argument("name", help="项目名称（如 office_automation）")

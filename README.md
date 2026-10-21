@@ -51,21 +51,21 @@ flowchart LR
 
 | 特性 | 说明 |
 | --- | --- |
-| **框架/测试分离** | 测试项目内不含框架源码，框架独立升级，项目之间互不影响 |
-| **一键脚手架** | `just-go init` 生成 GUI / API / 全量骨架，基类下沉公共逻辑，用例只写业务 |
-| **同步 / 异步混写** | `def` 与 `async def` 任意混用，框架自动路由，无需 pytest-asyncio |
-| **多浏览器** | `config.run.browser_type` 切换 chromium / firefox / webkit，不改用例代码 |
+| **框架分离** | 测试项目内不含框架源码，框架独立升级，项目之间互不影响 |
+| **脚手架** | `just-go init` 生成 GUI / API / 全量骨架，基类下沉公共逻辑，用例只写业务 |
+| **同步 / 异步** | `def` 与 `async def` 任意混用，框架自动路由，无需 pytest-asyncio |
+| **浏览器兼容** | `config.run.browser_type` 切换 chromium / firefox / webkit，不改用例代码 |
 | **登录态复用** | 登录一次保存 `storage_state`，跨用例免重复登录 |
 | **多环境切换** | `--env dev/test/prod` 一键切换被测环境 |
-| **失败自动重试** | 默认失败重试 1 次，`@pytest.mark.flaky` 单用例覆盖 |
-| **tag 用例筛选** | 项目 `tag/` 目录 + CSV 登记，`--tag "L1 and smoke"` 表达式精确挑选 |
-| **桌面录屏** | 基于系统 ffmpeg 录屏（Windows  / Linux）自动附入报告 |
-| **Allure 报告** | 开箱即用：**单文件 HTML、中文界面、标题=项目名**，含失败截图、录屏、日志、用例链接 |
+| **自动重试** | 默认失败重试 1 次，`@pytest.mark.flaky` 单用例覆盖 |
+| **tag 筛选** | 项目 `tag/` 目录 + CSV 登记，`--tag "L1 and smoke"` 表达式精确挑选 |
+| **录屏** | 基于系统 ffmpeg 录屏（Windows  / Linux）自动附入报告 |
+| **报告** | 开箱即用：HTML，含失败截图、录屏、日志、用例链接 |
 | **数据驱动** | `just_go.data` 加载 JSON / CSV 数据，配合 `pytest.mark.parametrize` |
 | **接口能力** | Request 提供上传/下载/自动重试/代理/Cookie 管理，模板 `BaseApi` 直接复用 |
-| **方法文档即日志** | `@log` 类装饰器：方法被调用时自动把 docstring 记为日志（支持 `{{参数}}` 占位符），页面对象封装操作一目了然 |
-| **接口令牌注入** | `Request.set_token()` 注入全局请求头，接口用例免重复写鉴权头 |
-| **产物可重定向** | 默认输出在项目根，CI / 只读目录场景用 `--output` 重定向 |
+| **文档日志** | `@log` 类装饰器：方法被调用时自动把 docstring 记为日志（支持 `{{参数}}` 占位符），页面对象封装操作一目了然 |
+| **接口令牌** | `Request.set_token()` 注入全局请求头，接口用例免重复写鉴权头 |
+| **产物重定向** | 默认输出在项目根，CI / 只读目录场景用 `--output` 重定向 |
 
 ---
 
@@ -442,6 +442,7 @@ demo/
 | `just-go list` | 列出已注册项目（含路径有效性标记） |
 | `just-go remove <名称>` | 取消注册 |
 | `just-go run <名称\|路径> [pytest参数]` | 执行测试项目，其余参数透传 pytest（`--tag` / `--record` / `--env` / `--collect-only` 等） |
+| `just-go version`（或 `just-go --version`） | 显示框架版本号（无需任何依赖，可直接执行） |
 
 ---
 
