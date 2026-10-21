@@ -4,6 +4,23 @@
 版本号递增规则：修复 `x.y.patch+1`，新功能 `x.minor+1`，不兼容变更 `major+1`。
 发布到 PyPI 后同版本不可覆盖，发新版必须递增版本号。
 
+## [0.1.8] - 2026-10-21
+
+### 新增
+- Allure 报告默认**单文件 HTML**（`--single-file`）、**中文界面**（`--lang zh`）、**标题为被测项目名**
+  （`--name`）；参数按 allure 版本自动启用：`>=2.24` 单文件，`>=2.30` 报告名/语言
+- 默认 allure 版本升至 2.30.0（`--name`/`--lang` 自 2.24 起被移除、2.30 恢复），新装即具备完整报告能力
+- `just-go version` / `just-go --version` 版本查询命令（无需 pipenv / 框架依赖即可执行，
+  已安装包元数据优先，源码运行回退读取 pyproject.toml）
+- `config.ini` 新增 `report_name` / `report_language`（缺省=被测项目名 / 中文）
+
+### 修复
+- 修复 allure 2.24-2.29 无 `--name`/`--lang` 选项时参数被误当成结果目录的兼容问题
+  （按版本自动跳过，老版本仅加 `--single-file`）
+
+### 测试
+- 新增 `tests/test_tools.py` 6 用例（GenerateReport 版本探测与命令组装），全量 102 用例通过、ruff 通过
+
 ## [0.1.5] - 2026-10-20
 
 ### 新增
