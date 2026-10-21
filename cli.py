@@ -110,34 +110,97 @@ def cmd_run(args) -> int:
         project_name = os.path.basename(os.path.abspath(args.target))
     project_root = normalize_path(project_root)
 
-    # 2. 环境：注入测试项目根 + 输出根 + PYTHONPATH
+    # 2. 环境：优先使用被测项目的独立 pipenv 虚拟环境（每项目一套依赖，
+    #    用项目内安装的 just-go 包执行）；无 venv 的旧项目回退框架环境
     env = os.environ.copy()
     env["JUSTGO_PROJECT_ROOT"] = project_root
     env["JUSTGO_PROJECT_NAME"] = project_name
     if args.output:
         env["JUSTGO_OUTPUT_ROOT"] = os.path.abspath(os.path.expanduser(args.output))
         print(f"运行产物输出目录：{env['JUSTGO_OUTPUT_ROOT']}")
-    pythonpath = FRAMEWORK_ROOT
-    if env.get("PYTHONPATH"):
-        pythonpath = pythonpath + os.pathsep + env["PYTHONPATH"]
-    env["PYTHONPATH"] = pythonpath
-
-    # 3. 组装 pytest 命令：插件由 CLI 注入；禁用 pytest-playwright（浏览器由框架
-    #    自行通过 playwright 库管理，避免其 page/browser fixture 与框架冲突）
-    cmd = [
-        sys.executable,
-        "-m",
-        "pytest",
-        "-p",
-        "just_go.plugin",
-        "-p",
-        "no:playwright",
-    ] + args.pytest_args
+    venv = _project_venv_path(project_root)
+    if venv and not os.environ.get("JUSTGO_SKIP_PROJECT_VENV"):
+        # 被测项目独立环境：由项目 Pipfile 决定，不注入框架源码（用项目安装的 just-go 包）
+        env["PIPENV_IGNORE_VIRTUALENVS"] = "1"
+        cmd = [
+            shutil.which("pipenv"),
+            "run",
+            "python",
+            "-m",
+            "pytest",
+            "-p",
+            "just_go.plugin",
+            "-p",
+            "no:playwright",
+        ] + args.pytest_args
+        print(f"使用被测项目独立虚拟环境执行：{venv}")
+    else:
+        pythonpath = FRAMEWORK_ROOT
+        if env.get("PYTHONPATH"):
+            pythonpath = pythonpath + os.pathsep + env["PYTHONPATH"]
+        env["PYTHONPATH"] = pythonpath
+        # 插件由 CLI 注入；禁用 pytest-playwright（浏览器由框架自行通过
+        # playwright 库管理，避免其 page/browser fixture 与框架冲突）
+        cmd = [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-p",
+            "just_go.plugin",
+            "-p",
+            "no:playwright",
+        ] + args.pytest_args
 
     print(f"执行测试项目：{project_root}")
     print(f"命令：{' '.join(cmd)}")
     result = subprocess.run(cmd, cwd=project_root, env=env)
     return result.returncode
+
+
+def _project_venv_path(project_root: str) -> str | None:
+    """查询被测项目的 pipenv 虚拟环境路径（项目根需有 Pipfile；未创建返回 None）"""
+    pipenv = shutil.which("pipenv")
+    if not pipenv:
+        return None
+    if not os.path.exists(os.path.join(project_root, "Pipfile")):
+        return None
+    r = subprocess.run(
+        [pipenv, "--venv"], cwd=project_root, capture_output=True, text=True
+    )
+    if r.returncode != 0:
+        return None
+    p = r.stdout.strip()
+    return p if p and os.path.isdir(p) else None
+
+
+def cmd_shell(args) -> int:
+    """进入被测项目的 pipenv 虚拟环境（无环境时自动创建并安装依赖）"""
+    registry = load_registry()
+    if args.target in registry:
+        project_root = normalize_path(registry[args.target])
+    else:
+        project_root = normalize_path(args.target)
+    if not os.path.isdir(project_root):
+        raise SystemExit(f"错误：项目目录不存在：{project_root}")
+    pipenv = shutil.which("pipenv")
+    if not pipenv:
+        raise SystemExit("未检测到 pipenv，请先执行：python -m pip install pipenv")
+    pipfile_path = os.path.join(project_root, "Pipfile")
+    if not os.path.exists(pipfile_path):
+        # 旧项目无 Pipfile：自动生成项目级依赖清单（just-go 包含全部运行依赖）
+        with open(pipfile_path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(_load_template(os.path.join("common", "Pipfile")))
+        print(f"已为项目生成 Pipfile：{pipfile_path}")
+    if not _project_venv_path(project_root):
+        print("正在为项目创建 pipenv 虚拟环境并安装依赖（首次较慢）...")
+        rc = subprocess.call(
+            [pipenv, "install", "--skip-lock"], cwd=project_root
+        )
+        if rc != 0:
+            raise SystemExit("pipenv 安装失败，请检查网络或手动执行：pipenv install")
+        print("虚拟环境创建完成。")
+    print(f"进入项目虚拟环境：{project_root}（输入 exit 退出）")
+    return subprocess.call([pipenv, "shell"], cwd=project_root)
 
 
 # ---------------------------------------------------------------------------
@@ -173,8 +236,9 @@ def _ensure_pipenv_runtime(argv: list) -> None:
         return
     if any(a in ("-h", "--help", "--version") for a in argv):
         return
-    # 版本查询不依赖任何框架依赖，无需进入 pipenv 环境
-    if argv and argv[0] == "version":
+    # 纯文件/注册/版本类命令不依赖框架依赖，无需进入 pipenv 环境：
+    # version/shell(add/list/remove/init) 只做骨架生成与登记；install 有专门分支
+    if argv and argv[0] in ("version", "shell", "add", "list", "remove", "init"):
         return
     if not os.path.exists(os.path.join(FRAMEWORK_ROOT, "Pipfile")):
         return
@@ -497,6 +561,9 @@ def _build_templates(mode: str) -> tuple:
             os.path.join("common", "cases", "base_case.py")
         ),
         "README.md": _load_template(os.path.join("common", "README.md")),
+        # 被测项目级 Pipfile：项目拥有独立 pipenv 虚拟环境（依赖 just-go 包，
+        # 一次装齐 pytest/playwright/allure 等全部运行依赖）
+        "Pipfile": _load_template(os.path.join("common", "Pipfile")),
     }
     sections = ""
     if mode in ("gui", "all"):
@@ -612,7 +679,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_remove.add_argument("name", help="项目名称")
     p_remove.set_defaults(func=cmd_remove)
 
-    p_run = sub.add_parser("run", help="执行指定测试项目的自动化测试")
+    p_run = sub.add_parser("run", help="运行项目测试")
     p_run.add_argument("target", help="已注册的项目名称，或测试项目根目录路径")
     p_run.add_argument(
         "--output",
@@ -626,8 +693,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_run.set_defaults(func=cmd_run)
 
+    p_shell = sub.add_parser(
+        "shell", help="进入虚拟环境"
+    )
+    p_shell.add_argument("target", help="已注册的项目名称，或测试项目根目录路径")
+    p_shell.set_defaults(func=cmd_shell)
+
     p_init = sub.add_parser(
-        "init", help="初始化测试项目骨架（默认 gui；支持 [api|gui|all] 类型后缀）"
+        "init", help="初始化测试项目（默认 gui；支持 [api|gui|all] 类型后缀）"
     )
     p_init.add_argument(
         "target",

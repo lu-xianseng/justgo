@@ -17,7 +17,10 @@
 # 首次：注册项目（把 <名称> 换成你的项目名）
 just-go add <名称> .
 
-# 执行全部用例
+# 进入本项目独立的 pipenv 虚拟环境（首次自动创建并安装依赖）
+just-go shell <名称>
+
+# 执行全部用例（自动使用本项目独立虚拟环境执行）
 just-go run <名称>
 
 # 只收集不执行（快速验证骨架）
@@ -27,9 +30,10 @@ just-go run <名称> --collect-only
 just-go run <名称> --tag "smoke and L1"
 ```
 
-或直接在项目根敲 pytest（conftest 已声明框架插件）：
+或进入项目环境后直接在项目根敲 pytest（conftest 已声明框架插件）：
 
 ```bash
+just-go shell <名称>     # 进入项目虚拟环境
 pytest
 ```
 
@@ -52,7 +56,11 @@ pytest
 `cache/`（allure 原始结果 report/、临时录屏与截图 temp/）。
 可重定向：`just-go run <名称> --output D:\产物目录`。
 
-## 依赖
+## 依赖与虚拟环境
 
-框架依赖由 just-go 管理：`just-go install`（core/playwright/allure/ffmpeg 可选）。
-测试项目自身的 Python 依赖（如 redis、pymysql）由项目自行安装到运行环境。
+- **本项目拥有独立的 pipenv 虚拟环境**（项目根 `Pipfile` 声明依赖 `just-go`，一次装齐
+  pytest/playwright/allure 等全部运行依赖）。`just-go run` 会自动检测并使用项目环境执行，
+  各测试项目之间依赖互不影响。
+- 进入项目环境：`just-go shell <名称>`（首次自动创建 venv 并安装，之后直接进入）。
+- 框架本体依赖由 just-go 管理：`just-go install`（core/playwright/allure/ffmpeg 可选）。
+- 测试项目额外的 Python 依赖（如 redis、pymysql）：在项目环境内 `pipenv install <包名>`。

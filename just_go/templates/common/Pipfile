@@ -1,0 +1,10 @@
+[[source]]
+url = "https://mirrors.huaweicloud.com/repository/pypi/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+just-go = "*"
+
+[requires]
+python_version = "3"

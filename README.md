@@ -441,7 +441,8 @@ demo/
 | `just-go add <名称> <路径>` | 注册测试项目 |
 | `just-go list` | 列出已注册项目（含路径有效性标记） |
 | `just-go remove <名称>` | 取消注册 |
-| `just-go run <名称\|路径> [pytest参数]` | 执行测试项目，其余参数透传 pytest（`--tag` / `--record` / `--env` / `--collect-only` 等） |
+| `just-go run <名称\|路径> [pytest参数]` | 执行测试项目，其余参数透传 pytest（`--tag` / `--record` / `--env` / `--collect-only` 等）；**自动使用被测项目独立虚拟环境**（无则回退框架环境，兼容旧项目） |
+| `just-go shell <名称\|路径>` | 进入被测项目的 pipenv 虚拟环境（首次自动创建并安装依赖） |
 | `just-go version`（或 `just-go --version`） | 显示框架版本号（无需任何依赖，可直接执行） |
 
 ---
@@ -454,7 +455,11 @@ demo/
 - Allure 报告需 Java：`just-go install allure` 检测缺失会自动尝试安装（Windows 用 winget 装 Temurin JDK，Linux 用 apt 装 OpenJDK 17），装不了会给出手动下载指引
 - ffmpeg：录屏必需，`just-go install ffmpeg` 自动安装（Windows winget / Linux apt），或手动下载加入 PATH
 
-> 测试项目自身的 Python 依赖（如 redis、pymysql）由项目自行安装到运行环境，框架不代管。
+> **测试项目虚拟环境**：`just-go init` 生成的骨架自带项目级 `Pipfile`（依赖 `just-go` 包，
+> 一次装齐 pytest/playwright/allure 等运行依赖）。每个测试项目拥有**独立的 pipenv 虚拟环境**，
+> `just-go shell <名称>` 进入（首次自动创建安装），`just-go run` 自动检测并使用项目环境执行；
+> 旧项目（无 Pipfile/venv）自动回退框架环境，行为不变。
+> 测试项目额外的 Python 依赖（如 redis、pymysql）在项目环境内 `pipenv install <包名>`，框架不代管。
 
 ---
 
