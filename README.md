@@ -1,8 +1,8 @@
 # just-go
 
-**Web 自动化测试框架** —— 框架与测试代码分离，一条命令执行指定测试项目，自动产出 Allure 报告（含桌面录屏、失败截图、运行日志）。
+只需要专注业务编写的一个分离式 **Web 自动化测试框架**。
 
-> 框架只装一次、全局复用；测试项目单独存放、互不影响。升级框架、迁移机器、接入 CI，都不需要改动已写好的测试代码。
+> 测试项目单独存放、互不影响。升级框架、迁移机器、接入 CI，都不需要改动已写好的测试代码。
 
 [![PyPI Version](https://img.shields.io/pypi/v/just-go)](https://pypi.org/project/just-go/)
 [![Python Versions](https://img.shields.io/pypi/pyversions/just-go)](https://pypi.org/project/just-go/)
@@ -18,13 +18,13 @@
 
 ```mermaid
 flowchart LR
-    subgraph 框架层["just-go（pip 安装一次）"]
+    subgraph 框架层["just-go"]
         CLI["CLI：init / add / run / install"]
         PLUGIN["pytest 插件：page fixture、tag 筛选、录屏、重试、多环境"]
         TOOLS["工具：allure 报告、ffmpeg 录屏、数据驱动、接口封装"]
     end
 
-    subgraph 项目层["测试项目（独立目录，只写业务）"]
+    subgraph 项目层["测试项目"]
         CONF["conftest.py 配置"]
         CASES["cases/ 用例"]
         PAGES["pages/ 页面对象"]
@@ -34,16 +34,16 @@ flowchart LR
     CLI --> |"run <项目>"| PLUGIN
     PLUGIN --> CASES
     CASES --> PAGES
-    TOOLS --> |"自动产出"| REPORTS["logs / reports / cache"]
+    TOOLS --> |"产出"| REPORTS["logs / reports / cache"]
     TAG -.-> |"按标签筛选"| CASES
 
     style 框架层 fill:#f0f4ff
     style 项目层 fill:#f0fff0
 ```
 
-- **框架层**：安装一次，随 PyPI 版本升级；
+- **框架层**：安装后，随 PyPI 版本升级；
 - **项目层**：`just-go init` 生成的标准骨架，测试代码与框架完全解耦；
-- **产物层**：日志、Allure 报告、原始结果自动归置，可按 `--output` 重定向归档。
+- **产物层**：日志、Allure 报告、原始结果自动归置，也可重定向归档。
 
 ---
 
@@ -56,11 +56,11 @@ flowchart LR
 | **同步 / 异步混写** | `def` 与 `async def` 任意混用，框架自动路由，无需 pytest-asyncio |
 | **多浏览器** | `config.run.browser_type` 切换 chromium / firefox / webkit，不改用例代码 |
 | **登录态复用** | 登录一次保存 `storage_state`，跨用例免重复登录 |
-| **多环境切换** | `--env dev/test/prod` 一键切换被测环境，conftest 内 `BASE_URLS` 字典维护 |
+| **多环境切换** | `--env dev/test/prod` 一键切换被测环境 |
 | **失败自动重试** | 默认失败重试 1 次，`@pytest.mark.flaky` 单用例覆盖 |
 | **tag 用例筛选** | 项目 `tag/` 目录 + CSV 登记，`--tag "L1 and smoke"` 表达式精确挑选 |
-| **桌面录屏** | 基于系统 ffmpeg 录屏（Windows gdigrab / Linux x11grab），mp4 自动附入报告 |
-| **Allure 报告** | 开箱即用：HTML 报告含失败截图、录屏、日志、用例链接 |
+| **桌面录屏** | 基于系统 ffmpeg 录屏（Windows  / Linux）自动附入报告 |
+| **Allure 报告** | 开箱即用：**单文件 HTML、中文界面、标题=项目名**，含失败截图、录屏、日志、用例链接 |
 | **数据驱动** | `just_go.data` 加载 JSON / CSV 数据，配合 `pytest.mark.parametrize` |
 | **接口能力** | Request 提供上传/下载/自动重试/代理/Cookie 管理，模板 `BaseApi` 直接复用 |
 | **方法文档即日志** | `@log` 类装饰器：方法被调用时自动把 docstring 记为日志（支持 `{{参数}}` 占位符），页面对象封装操作一目了然 |
@@ -84,9 +84,9 @@ just-go install          # 安装运行依赖：核心库 / Chromium / allure / 
 ### 2. 初始化测试项目
 
 ```bash
-just-go init SHOP-TEST            # GUI 骨架：页面对象 + 页面用例（默认类型）
-just-go init "SHOP-API[api]"      # API 骨架：接口封装 + 接口用例
-just-go init "SHOP-ALL[all]"      # 两套都生成
+just-go init demo             # GUI 骨架：页面对象 + 页面用例（默认类型）
+just-go init "demo[api]"      # API 骨架：接口封装 + 接口用例
+just-go init "demo[all]"      # 两套都生成
 ```
 
 生成**标准空白骨架**：目录结构、配置、开发指南齐全，业务代码按项目内 `README.md` 指引填充。
@@ -106,14 +106,16 @@ BASE_URLS = {
 ### 4. 注册并运行
 
 ```bash
-just-go add shop D:\ProjectCode\SHOP-TEST   # 注册项目（名称自定）
-just-go run shop                            # 执行全部用例
-just-go run shop --env prod                 # 按环境切换被测地址
-just-go run shop --tag "smoke and L1"       # 按 tag 表达式筛选
-just-go run shop --collect-only             # 只收集用例，不执行
+just-go add demo D:\ProjectCode\demo   # 注册项目（名称自定）
+just-go run demo                            # 执行全部用例
+just-go run demo --env prod                 # 按环境切换被测地址
+just-go run demo --tag "smoke and L1"       # 按 tag 表达式筛选
+just-go run demo --collect-only             # 只收集用例，不执行
 ```
 
 跑完打开项目根 `reports/<最新时间戳>/index.html` 查看报告，录屏、失败截图、日志都在里面。
+
+报告默认为**单文件 HTML**（整个报告就是一个 `index.html`，方便归档/分享）、**中文界面**、**标题为被测项目名**（如 `reports/<时间戳>/index.html` 打开后标题显示 `AutoLib`）；如需自定义标题或语言，可在被测项目 `config.ini` 中配置 `report_name` / `report_language`（需 allure ≥ 2.30，框架安装默认即 2.30）。
 
 ---
 
@@ -271,7 +273,7 @@ config.run.storage_state = "state.json"   # 相对路径基于测试项目根
 骨架 conftest.py 内置 `BASE_URLS`（dev / test / prod），运行时指定环境：
 
 ```bash
-just-go run shop --env prod    # 或直接在项目根: pytest --env prod
+just-go run demo --env prod    # 或直接在项目根: pytest --env prod
 ```
 
 未指定时默认 `dev`。环境标识写入 `JUSTGO_ENV`，conftest 按它选择被测地址；增删环境只改 `BASE_URLS` 字典。
@@ -347,7 +349,7 @@ class HomePage(BasePage):
 
 ## 桌面录屏（ffmpeg）
 
-- **开启**：`pytest.ini` 中 `--record=yes`（骨架默认开启，删除该行即关闭）；临时开关 `just-go run shop --record=no`
+- **开启**：`pytest.ini` 中 `--record=yes`（骨架默认开启，删除该行即关闭）；临时开关 `just-go run demo --record=no`
 - **方式**：系统 ffmpeg 抓取整个桌面（Windows 用 `gdigrab`，Linux 用 `x11grab`），产出 mp4 自动附入 Allure 报告
 - **依赖**：系统需已安装 ffmpeg 并加入 PATH
 
@@ -381,19 +383,19 @@ tag/
 - 登记后即可按表达式筛选：
 
 ```bash
-just-go run shop --tag "L1 and smoke"          # 逻辑与
-just-go run shop --tag "L1 or L2"              # 逻辑或
-just-go run shop --tag "(L1 or L2) and smoke"  # 括号组合
+just-go run demo --tag "L1 and smoke"          # 逻辑与
+just-go run demo --tag "L1 or L2"              # 逻辑或
+just-go run demo --tag "(L1 or L2) and smoke"  # 括号组合
 ```
 
 ---
 
 ## 运行产物
 
-默认输出在测试项目根下（CI / 只读目录场景可用 `just-go run shop --output <目录>` 重定向，按 输出根/项目名 分子目录，多项目互不干扰）：
+默认输出在测试项目根下（CI / 只读目录场景可用 `just-go run demo --output <目录>` 重定向，按 输出根/项目名 分子目录，多项目互不干扰）：
 
 ```
-SHOP-TEST/
+demo/
 ├─ logs/           # 运行日志（loguru，每次运行一个时间戳文件，10MB 滚动保留 7 天）
 ├─ reports/        # Allure HTML 报告（每次运行一个时间戳目录，不覆盖历史）
 └─ cache/          # Allure 原始结果（report/）、临时录屏与截图（temp/）
@@ -409,6 +411,7 @@ SHOP-TEST/
 | --- | --- |
 | `framework.browser_path` | 指定浏览器可执行文件路径（默认 Playwright 自带 Chromium） |
 | `framework.allure_path` | allure 工具路径（留空自动查找：PATH → `~/.just-go/allure/*/bin`） |
+| `framework.report_name` / `report_language` | 报告标题（缺省=被测项目名）/ 语言（缺省 zh），allure ≥ 2.30 生效 |
 | `framework.log_path` / `report_path` / `cache_path` | 产物目录名（默认 logs / reports / cache） |
 | `run.slow_time` | 操作慢速等待毫秒数（默认 500） |
 | `run.show_browser` | `True` 显示浏览器窗口 / `False` 无头运行 |
@@ -484,6 +487,6 @@ SHOP-TEST/
 
 ## 贡献与许可
 
-- 问题与建议：GitHub Issues（[github.com/lu-xianseng/justgo](https://github.com/lu-xianseng/justgo)）
-- 版本发布：打 `v*` tag 触发 GitHub Actions + Trusted Publishing 自动构建发布到 PyPI
+- 问题与建议：GitHub Issues（[issues](https://github.com/lu-xianseng/justgo/issues)）
+- 版本发布：打tag 触发 GitHub Actions + Trusted Publishing 自动构建发布到 PyPI
 - License：MIT

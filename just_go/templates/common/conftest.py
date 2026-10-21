@@ -2,7 +2,7 @@
 # coding=utf-8
 """测试项目根 conftest：让 just-go 框架插件生效，并向框架注入本项目配置。
 
-必改项（按你的项目填写）：
+按你的项目填写：
 - JUSTGO_TEST_BASE_URL：被测系统实际地址（写入报告环境信息；页面对象跳转时也读取它）
 - JUSTGO_TEST_CASE_BASE_URL：测试管理平台（如禅道）用例链接前缀，写入报告用例链接（可选）
 

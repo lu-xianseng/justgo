@@ -4,6 +4,7 @@
 # @Author   :luye
 import os
 import platform
+import re
 import shutil
 import subprocess
 import time
@@ -14,7 +15,13 @@ import allure
 import pytest
 
 from just_go.exceptions import RecordError, SoftwareNotInstallError
-from just_go.settings import ALLURE_PATH, REPORT_PATH, TMP_REPORT_PATH
+from just_go.settings import (
+    ALLURE_PATH,
+    PROJECT_NAME,
+    REPORT_PATH,
+    TMP_REPORT_PATH,
+    config,
+)
 
 
 class GenerateReport:
@@ -30,6 +37,58 @@ class GenerateReport:
         # 报告目录延迟到 run() 生成时创建（避免 import just_go 即产生空报告目录）
         self.__report_path = None
         self.__cmd = None
+
+    @staticmethod
+    def _allure_version() -> tuple:
+        """解析 allure CLI 版本号（allure --version 输出如 2.30.0 -> (2, 30, 0)）"""
+        try:
+            r = subprocess.run(
+                [ALLURE_PATH, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            m = re.search(r"(\d+)\.(\d+)\.(\d+)", r.stdout or r.stderr or "")
+            if m:
+                return tuple(int(x) for x in m.groups())
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        return (0, 0, 0)
+
+    @property
+    def report_name(self) -> str:
+        """报告标题：config.ini [framework] report_name 优先，缺省用被测项目名"""
+        return (
+            (config.framework.report_name or "").strip()
+            or PROJECT_NAME
+        )
+
+    @property
+    def report_language(self) -> str:
+        """报告语言：config.ini [framework] report_language（默认 zh 中文）"""
+        return (config.framework.report_language or "zh").strip() or "zh"
+
+    def _build_cmd(self) -> list:
+        """组装 allure generate 命令（按版本自动启用新选项）
+
+        - --single-file：单文件 HTML 报告（allure >= 2.24 支持，实测 2.24.1 可用）
+        - --name / --lang：报告标题与语言（allure 2.24-2.29 曾移除，2.30 恢复；
+          老版本不传，避免被误当成结果目录参数）
+        """
+        cmd = [
+            ALLURE_PATH,
+            "generate",
+            TMP_REPORT_PATH,
+            "-c",
+            "-o",
+            self.__report_path,
+        ]
+        ver = self._allure_version()
+        if ver >= (2, 24, 0):
+            cmd.append("--single-file")
+        if ver >= (2, 30, 0):
+            cmd += ["--name", self.report_name, "--lang", self.report_language]
+        return cmd
 
     @staticmethod
     def set_report_env():
@@ -65,17 +124,7 @@ class GenerateReport:
         )
         if not os.path.exists(self.__report_path):
             os.makedirs(self.__report_path)
-        self.__cmd = [
-            ALLURE_PATH,
-            "generate",
-            TMP_REPORT_PATH,
-            # 注意：allure 2.24+ 已移除 generate 的 --lang/--name 选项（移入
-            # profile 配置文件），旧参数会被误当成结果目录。只保留通用选项
-            # -c(清理) -o(输出目录)，兼容所有 allure 2.x 版本。
-            "-c",
-            "-o",
-            self.__report_path,
-        ]
+        self.__cmd = self._build_cmd()
         res = subprocess.Popen(
             self.__cmd,
             stdout=subprocess.PIPE,

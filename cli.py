@@ -270,8 +270,9 @@ def _install_playwright() -> int:
     return 0
 
 
-# 默认锁定的 allure 版本（已验证可用）；版本与框架解耦，用户可随时升级/降级
-DEFAULT_ALLURE_VERSION = "2.24.1"
+# 默认锁定的 allure 版本（已验证可用：generate 支持 --single-file，且 2.30+ 恢复
+# --name/--lang 报告标题与语言选项）；版本与框架解耦，用户可随时升级/降级
+DEFAULT_ALLURE_VERSION = "2.30.0"
 
 
 def _install_allure(version: str = None) -> int:
