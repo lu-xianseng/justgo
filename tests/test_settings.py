@@ -2,8 +2,8 @@
 """settings 配置包装单元测试：属性访问 / 布尔解析 / 运行时覆盖"""
 import pytest
 
-from just_go.core import config
 from just_go._internal.settings import ConfigWrapper
+from just_go.core import config
 
 
 def make_config(text: str):

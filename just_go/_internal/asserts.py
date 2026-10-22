@@ -10,8 +10,8 @@
 """
 import re
 
-from playwright.sync_api import expect as sync_expect
 from playwright.async_api import expect as async_expect
+from playwright.sync_api import expect as sync_expect
 
 from just_go._internal.logger import logger
 

@@ -12,8 +12,9 @@ from typing import Any, Callable, TypeVar
 
 try:
     import allure
+    from playwright.async_api import Page as AsyncPage
+    from playwright.async_api import Response as AsyncResponse
     from playwright.sync_api import Page, Response
-    from playwright.async_api import Page as AsyncPage, Response as AsyncResponse
 except ImportError as e:
     from just_go._internal.errors import SoftwareNotInstallError
 
