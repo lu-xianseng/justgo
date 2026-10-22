@@ -2,7 +2,7 @@
 """ParseTag 单元测试：tag 表达式筛选与 CSV 加载"""
 import os
 
-from just_go.parse_tag import ParseTag, UpdateTag
+from just_go._internal.parse_tag import ParseTag, UpdateTag
 
 
 class TestEvaluateExpression:
@@ -69,14 +69,14 @@ class TestModuleDir:
         return item
 
     def test_relative_location(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("just_go.parse_tag.ROOTDIR", str(tmp_path))
+        monkeypatch.setattr("just_go._internal.parse_tag.ROOTDIR", str(tmp_path))
         rel = os.path.join("cases", "gui", "test_login.py")
         assert ParseTag._module_dir(self._make_item(rel)) == os.path.join(
             "cases", "gui"
         )
 
     def test_absolute_location_relative_to_root(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("just_go.parse_tag.ROOTDIR", str(tmp_path))
+        monkeypatch.setattr("just_go._internal.parse_tag.ROOTDIR", str(tmp_path))
         abs_path = os.path.join(str(tmp_path), "cases", "gui", "test_login.py")
         assert ParseTag._module_dir(self._make_item(abs_path)) == os.path.join(
             "cases", "gui"
@@ -84,7 +84,7 @@ class TestModuleDir:
 
     def test_absolute_location_outside_root(self, tmp_path, monkeypatch):
         # 项目外文件：相对化后以 .. 开头，不误判为 cases 前缀
-        monkeypatch.setattr("just_go.parse_tag.ROOTDIR", str(tmp_path))
+        monkeypatch.setattr("just_go._internal.parse_tag.ROOTDIR", str(tmp_path))
         outside = os.path.join(str(tmp_path), "..", "other", "test_x.py")
         assert ParseTag._module_dir(self._make_item(outside)).startswith("..")
 
@@ -131,7 +131,7 @@ class TestGetTestCaseId:
 class TestUpdateTag:
     def test_create_tag_file_writes_header(self, tmp_path, monkeypatch):
 
-        monkeypatch.setattr("just_go.parse_tag.ROOTDIR", str(tmp_path))
+        monkeypatch.setattr("just_go._internal.parse_tag.ROOTDIR", str(tmp_path))
         cases = tmp_path / "cases" / "module"
         cases.mkdir(parents=True)
 
@@ -153,7 +153,7 @@ class TestUpdateTag:
 
     def test_create_tag_file_with_absolute_location(self, tmp_path, monkeypatch):
         # importlib 模式下 location 为绝对路径：仍应落在项目根 tag/ 下
-        monkeypatch.setattr("just_go.parse_tag.ROOTDIR", str(tmp_path))
+        monkeypatch.setattr("just_go._internal.parse_tag.ROOTDIR", str(tmp_path))
         cases = tmp_path / "cases" / "api"
         cases.mkdir(parents=True)
 

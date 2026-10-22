@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+logs/
+reports/
+cache/
+.idea/
+.vscode/
+Pipfile.lock
+log.txt
+state.json

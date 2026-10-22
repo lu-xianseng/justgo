@@ -2,7 +2,7 @@
 """just_go.data 数据加载工具单元测试"""
 import pytest
 
-from just_go.data import load_csv_cases, load_json_cases
+from just_go._internal.data import load_csv_cases, load_json_cases
 
 
 class TestLoadJsonCases:
@@ -13,7 +13,7 @@ class TestLoadJsonCases:
         assert data[0]["username"] == "admin"
 
     def test_relative_resolves_against_rootdir(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("just_go.data.ROOTDIR", str(tmp_path))
+        monkeypatch.setattr("just_go._internal.data.ROOTDIR", str(tmp_path))
         f = tmp_path / "cases.json"
         f.write_text("[]", encoding="utf-8")
         assert load_json_cases("cases.json") == []

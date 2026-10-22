@@ -4,7 +4,7 @@
 # @Author   :luye
 import os
 import shutil
-from configparser import ConfigParser
+from configparser import ConfigParser, SectionProxy
 from typing import Any, Dict, Optional
 
 
@@ -15,7 +15,7 @@ class SectionWrapper:
     优先于 config.ini 文件值）。可在测试项目 conftest.py 顶部导入赋值。
     """
 
-    def __init__(self, section: ConfigParser.sections):
+    def __init__(self, section: SectionProxy):
         """初始化节包装器并转换布尔值配置项"""
         self._section = section
         self._cache: Dict[str, Any] = {}
@@ -88,7 +88,7 @@ class ConfigWrapper:
 
 config_parser = ConfigParser()
 config_path = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "configs", "config.ini"
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "configs", "config.ini"
 )
 config_parser.read(filenames=config_path, encoding="utf-8")
 config = ConfigWrapper(config_parser)

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "just-go"
-version = "0.1.9"
+version = "0.2.0"
 description = "Web 自动化测试框架：框架与测试代码分离，一条命令指定测试项目执行自动化测试并产出报告"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -33,14 +33,7 @@ classifiers = [
     "Topic :: Software Development :: Testing",
 ]
 dependencies = [
-    "pytest>=8.3.4",
-    "pytest-rerunfailures",
-    "allure-python-commons>=2.13.5",
-    "allure-pytest>=2.13.5",
-    "loguru>=0.7.3",
-    "faker",
-    "requests",
-    "playwright",
+    "pipenv",
 ]
 
 [project.urls]
@@ -51,7 +44,7 @@ Repository = "https://github.com/lu-xianseng/justgo"
 just-go = "cli:main"
 
 [tool.setuptools]
-packages = ["just_go"]
+packages = ["just_go", "just_go._internal"]
 py-modules = ["cli"]
 
 # 配置文件与 init 骨架模板属于框架资源，必须随包安装（默认只打包 .py 文件）
@@ -61,7 +54,7 @@ just_go = [
     "templates/common/*",
     "templates/common/cases/*",
     "templates/gui/*",
-    "templates/gui/cases/module/*",
+    "templates/gui/cases/login/*",
     "templates/gui/pages/*",
     "templates/gui/tag/*",
     "templates/api/*",

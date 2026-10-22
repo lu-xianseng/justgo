@@ -6,7 +6,7 @@ import os
 
 from faker import Faker
 
-from just_go.settings import ROOTDIR
+from just_go._internal.settings import ROOTDIR
 
 
 class MockData:

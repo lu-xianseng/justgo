@@ -5,8 +5,8 @@ import shutil
 
 import pytest
 
-from just_go.exceptions import ConfigError
-from just_go.plugin import _page_setup, config
+from just_go._internal.errors import ConfigError
+from just_go._internal.plugin import _page_setup, config
 
 
 def _clean(setup):
@@ -71,7 +71,7 @@ def test_storage_state_absolute_path():
 def test_storage_state_relative_resolves_against_rootdir():
     try:
         _restore()
-        from just_go.settings import ROOTDIR
+        from just_go._internal.settings import ROOTDIR
 
         config.run.storage_state = os.path.relpath(__file__, ROOTDIR)
         setup = _page_setup()

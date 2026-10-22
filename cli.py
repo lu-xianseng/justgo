@@ -11,12 +11,13 @@ just-go 命令行入口。
     just-go list                         列出已注册项目
     just-go remove <名称>                取消注册
     just-go run <名称|路径> [pytest参数] 执行指定测试项目的自动化测试
+    just-go install [组件]               安装系统级工具（playwright/allure/ffmpeg）
 
 run 内部机制：
     1. 解析目标为已注册名称或直接路径，得到测试项目根目录；
-    2. 设置环境变量 JUSTGO_PROJECT_ROOT 指向测试项目根（框架据此定位 tag/日志/报告）；
-    3. 注入 PYTHONPATH（含框架根），保证未安装时 just_go 也可导入；
-    4. 以测试项目根为工作目录调用 `python -m pytest -p just_go.plugin <参数>`。
+    2. 设置环境变量 JUSTGO_PROJECT_ROOT 指向测试项目根；
+    3. 优先用项目 pipenv 虚拟环境执行（项目根有 Pipfile 时）；
+    4. 以测试项目根为工作目录调用 `python -m pytest -p just_go._internal.plugin <参数>`。
 """
 import argparse
 import json
@@ -26,10 +27,7 @@ import shutil
 import subprocess
 import sys
 
-# 保证任何目录下都能 import just_go（框架根 = 本文件所在目录，即 just-go 项目根）
 FRAMEWORK_ROOT = os.path.dirname(os.path.abspath(__file__))
-if FRAMEWORK_ROOT not in sys.path:
-    sys.path.insert(0, FRAMEWORK_ROOT)
 
 REGISTRY_DIR = os.path.join(os.path.expanduser("~"), ".just-go")
 REGISTRY_FILE = os.path.join(REGISTRY_DIR, "projects.json")
@@ -65,7 +63,7 @@ def normalize_path(path: str) -> str:
 
 def cmd_add(args) -> int:
     if not args.name:
-        raise SystemExit("错误：请提供项目名称，例如：just-go add office D:\\ProjectCode\\web_auto_test")
+        raise SystemExit("错误：请提供项目名称，例如：just-go add office D:\\path\\web_auto_test")
     path = normalize_path(args.path)
     registry = load_registry()
     if args.name in registry:
@@ -111,7 +109,7 @@ def cmd_run(args) -> int:
     project_root = normalize_path(project_root)
 
     # 2. 环境：优先使用被测项目的独立 pipenv 虚拟环境（每项目一套依赖，
-    #    用项目内安装的 just-go 包执行）；无 venv 的旧项目回退框架环境
+    #    由项目 Pipfile 决定）；无 venv 时用当前 Python 环境直接执行
     env = os.environ.copy()
     env["JUSTGO_PROJECT_ROOT"] = project_root
     env["JUSTGO_PROJECT_NAME"] = project_name
@@ -120,7 +118,6 @@ def cmd_run(args) -> int:
         print(f"运行产物输出目录：{env['JUSTGO_OUTPUT_ROOT']}")
     venv = _project_venv_path(project_root)
     if venv and not os.environ.get("JUSTGO_SKIP_PROJECT_VENV"):
-        # 被测项目独立环境：由项目 Pipfile 决定，不注入框架源码（用项目安装的 just-go 包）
         env["PIPENV_IGNORE_VIRTUALENVS"] = "1"
         cmd = [
             shutil.which("pipenv"),
@@ -129,24 +126,18 @@ def cmd_run(args) -> int:
             "-m",
             "pytest",
             "-p",
-            "just_go.plugin",
+            "just_go._internal.plugin",
             "-p",
             "no:playwright",
         ] + args.pytest_args
-        print(f"使用被测项目独立虚拟环境执行：{venv}")
+        print(f"使用项目虚拟环境执行：{venv}")
     else:
-        pythonpath = FRAMEWORK_ROOT
-        if env.get("PYTHONPATH"):
-            pythonpath = pythonpath + os.pathsep + env["PYTHONPATH"]
-        env["PYTHONPATH"] = pythonpath
-        # 插件由 CLI 注入；禁用 pytest-playwright（浏览器由框架自行通过
-        # playwright 库管理，避免其 page/browser fixture 与框架冲突）
         cmd = [
             sys.executable,
             "-m",
             "pytest",
             "-p",
-            "just_go.plugin",
+            "just_go._internal.plugin",
             "-p",
             "no:playwright",
         ] + args.pytest_args
@@ -183,8 +174,6 @@ def cmd_shell(args) -> int:
     if not os.path.isdir(project_root):
         raise SystemExit(f"错误：项目目录不存在：{project_root}")
     pipenv = shutil.which("pipenv")
-    if not pipenv:
-        raise SystemExit("未检测到 pipenv，请先执行：python -m pip install pipenv")
     pipfile_path = os.path.join(project_root, "Pipfile")
     if not os.path.exists(pipfile_path):
         # 旧项目无 Pipfile：自动生成项目级依赖清单（just-go 包含全部运行依赖）
@@ -192,7 +181,7 @@ def cmd_shell(args) -> int:
             f.write(_load_template(os.path.join("common", "Pipfile")))
         print(f"已为项目生成 Pipfile：{pipfile_path}")
     if not _project_venv_path(project_root):
-        print("正在为项目创建 pipenv 虚拟环境并安装依赖（首次较慢）...")
+        print("正在为项目创建 pipenv 虚拟环境并安装依赖...")
         rc = subprocess.call(
             [pipenv, "install", "--skip-lock"], cwd=project_root
         )
@@ -204,121 +193,9 @@ def cmd_shell(args) -> int:
 
 
 # ---------------------------------------------------------------------------
-# just-go install：框架依赖安装 / 检查（pipenv 管理虚拟环境）
-# 组件：core（框架核心 Python 依赖）| playwright（浏览器）|
-#       allure（报告工具）| ffmpeg（桌面录屏编码器，录屏必需）| all（全部，默认）
+# just-go install：系统级工具安装（浏览器 / 报告工具 / 录屏编码器）
+# Python 依赖由项目 Pipfile 自动安装，本命令不处理。
 # ---------------------------------------------------------------------------
-
-def _pipenv_venv_path() -> str | None:
-    """查询 pipenv 虚拟环境路径（未创建返回 None）"""
-    pipenv = shutil.which("pipenv")
-    if not pipenv:
-        return None
-    r = subprocess.run([pipenv, "--venv"], capture_output=True, text=True)
-    if r.returncode != 0:
-        return None
-    p = r.stdout.strip()
-    return p if p and os.path.isdir(p) else None
-
-
-def _is_venv() -> bool:
-    """是否已运行在虚拟环境中（pipenv venv 或普通 venv 都适用）"""
-    return getattr(sys, "base_prefix", sys.prefix) != sys.prefix
-
-
-def _ensure_pipenv_runtime(argv: list) -> None:
-    """引导到 pipenv 环境：
-    - 已运行在虚拟环境（含 pipenv venv）或显式跳过（JUSTGO_SKIP_PIPENV）时直接继续；
-    - 否则通过 `pipenv run python cli.py <argv>` 重新执行，保证依赖与 pytest
-      都落在 pipenv 虚拟环境中（sys.executable = venv python）。
-    """
-    if _is_venv() or os.environ.get("JUSTGO_SKIP_PIPENV"):
-        return
-    if any(a in ("-h", "--help", "--version") for a in argv):
-        return
-    # 纯文件/注册/版本类命令不依赖框架依赖，无需进入 pipenv 环境：
-    # version/shell(add/list/remove/init) 只做骨架生成与登记；install 有专门分支
-    if argv and argv[0] in ("version", "shell", "add", "list", "remove", "init"):
-        return
-    if not os.path.exists(os.path.join(FRAMEWORK_ROOT, "Pipfile")):
-        return
-    pipenv = shutil.which("pipenv")
-    if not pipenv:
-        if argv and argv[0] == "install":
-            print("未检测到 pipenv，自动安装（python -m pip install pipenv）...")
-            rc = subprocess.call([sys.executable, "-m", "pip", "install", "-U", "pipenv"])
-            if rc != 0:
-                raise SystemExit("pipenv 安装失败，请手动执行：python -m pip install pipenv")
-            pipenv = shutil.which("pipenv")
-        else:
-            raise SystemExit(
-                "just-go 使用 pipenv 管理虚拟环境，但未检测到 pipenv。\n"
-                "请先安装：python -m pip install pipenv"
-            )
-    if not _pipenv_venv_path():
-        if argv and argv[0] == "install":
-            print("首次使用：创建 pipenv 虚拟环境（使用当前 Python）...")
-            rc = subprocess.call([pipenv, "--python", "3"])
-            if rc != 0:
-                raise SystemExit("pipenv 虚拟环境创建失败，请检查 Python 环境")
-        else:
-            raise SystemExit(
-                "尚未创建 pipenv 虚拟环境，请先运行：just-go install"
-            )
-    # 重新进入 pipenv 环境执行（pipenv run 会设置 PIPENV_ACTIVE=1，不会再次引导）
-    print("进入 pipenv 虚拟环境执行...")
-    cmd = [pipenv, "run", "python", os.path.abspath(__file__)] + argv
-    sys.exit(subprocess.call(cmd))
-
-
-def _pipenv_install(packages: list | None, title: str) -> int:
-    """安装依赖：
-    - 有 pipenv（源码开发环境）：pipenv install 安装到 pipenv 虚拟环境；
-    - 无 pipenv 但在虚拟环境内（发布版：wheel 已自动装好 Python 依赖，且无 Pipfile）：
-      退化用 pip 安装到当前 venv；packages 为空（Pipfile 全量）时说明依赖已随 wheel 安装并跳过；
-    - 其余情况给出 pipenv 安装指引。
-    """
-    pipenv = shutil.which("pipenv")
-    if pipenv:
-        cmd = [pipenv, "install", "--skip-lock"]
-        if packages:
-            cmd += packages
-    elif _is_venv():
-        # 发布版环境：依赖已在 pip install <wheel> 时安装
-        if not packages:
-            print("  当前为安装版环境（无 Pipfile），Python 依赖已随 wheel 安装，跳过")
-            return 0
-        cmd = [sys.executable, "-m", "pip", "install"] + packages
-    else:
-        raise SystemExit("未检测到 pipenv，请先执行：python -m pip install pipenv")
-    print(f"==> {title}")
-    print(f"    {' '.join(cmd)}")
-    return subprocess.call(cmd)
-
-
-def _parse_pyproject_deps() -> list:
-    """从 pyproject.toml 解析框架核心依赖清单；发布版（无 pyproject.toml）返回空，
-    依赖已随 wheel 安装，由 _pipenv_install 的退化分支处理"""
-    pyproject = os.path.join(FRAMEWORK_ROOT, "pyproject.toml")
-    if not os.path.exists(pyproject):
-        return []
-    with open(pyproject, encoding="utf-8") as f:
-        text = f.read()
-    m = re.search(r"^dependencies\s*=\s*\[(.*?)\]", text, re.M | re.S)
-    if not m:
-        return []
-    return [x.strip().strip("\"'") for x in m.group(1).split(",") if x.strip()]
-
-
-def _install_core() -> int:
-    core = _parse_pyproject_deps()
-    return _pipenv_install(core, "安装框架核心 Python 依赖（pipenv）")
-
-
-def _install_all_py() -> int:
-    """按 Pipfile 全量安装框架 Python 依赖"""
-    return _pipenv_install(None, "安装全部 Python 依赖（按 Pipfile）")
-
 
 def _install_playwright() -> int:
     """安装 Playwright 浏览器（Chromium）"""
@@ -349,22 +226,22 @@ def _install_allure(version: str = None) -> int:
     需要 Java（allure 为 Java 工具）；可指定版本：just-go install allure 2.30.0
     """
     ver = version or DEFAULT_ALLURE_VERSION
-    print(f"==> 安装 allure 报告工具（版本 {ver}，安装到用户目录，与框架解耦）")
+    print(f"==> 安装 allure 报告工具，版本 {ver}")
     # Java 仅在生成 HTML 报告时需要（allure CLI 为 Java 工具）；原始结果产出不需要
     java = shutil.which("java")
     if not java:
-        print("  [缺失] Java 运行时（生成 HTML 报告需要，仅报告环节需要）")
+        print("  [缺失] Java 运行时")
         winget = shutil.which("winget")
         if winget:
             cmd = [
                 "winget", "install", "--id", "EclipseAdoptium.Temurin.17.JDK", "-e",
                 "--accept-source-agreements", "--accept-package-agreements",
             ]
-            print("  尝试 winget 自动安装 Temurin JDK：")
+            print("  尝试自动安装 JDK：")
             print(f"    {' '.join(cmd)}")
             rc = subprocess.call(cmd)
             if rc != 0:
-                print(f"  winget 安装未完成（退出码 {rc}），可稍后重试或手动安装")
+                print(f"  安装未完成（退出码 {rc}），可稍后重试或手动安装")
                 print("    手动下载 https://adoptium.net/ 并确保 java 在 PATH")
                 return 1
             java = shutil.which("java")
@@ -375,7 +252,7 @@ def _install_allure(version: str = None) -> int:
             # Linux 默认包管理工具为 apt：自动安装 OpenJDK 17（headless 运行时即可）
             if sys.platform.startswith("linux") and shutil.which("apt-get"):
                 cmd = ["apt-get", "install", "-y", "openjdk-17-jre-headless"]
-                print("  尝试 apt 自动安装 OpenJDK 17：")
+                print("  尝试自动安装 OpenJDK 17：")
                 print(f"    {' '.join(cmd)}（无权限时请手动加 sudo 执行）")
                 rc = subprocess.call(cmd)
                 if rc == 0:
@@ -400,7 +277,6 @@ def _install_allure(version: str = None) -> int:
     allure_exe = os.path.join(install_dir, f"allure-{ver}", "bin", exe_name)
     if os.path.exists(allure_exe):
         print(f"  [OK] allure {ver} 已安装：{allure_exe}")
-        print("      框架自动发现：config.ini 的 allure_path 留空即可")
         return 0
 
     url = f"https://github.com/allure-framework/allure2/releases/download/{ver}/allure-{ver}.zip"
@@ -441,7 +317,7 @@ def _install_allure(version: str = None) -> int:
 
 def _install_ffmpeg() -> int:
     """检查/安装系统 ffmpeg（桌面录屏必需）"""
-    print("==> 检查系统 ffmpeg（桌面录屏必需）")
+    print("==> 检查系统 桌面录屏 插件）")
     exe = shutil.which("ffmpeg")
     if exe:
         print(f"  [OK] ffmpeg：{exe}")
@@ -452,7 +328,7 @@ def _install_ffmpeg() -> int:
             "winget", "install", "--id", "Gyan.FFmpeg", "-e",
             "--accept-source-agreements", "--accept-package-agreements",
         ]
-        print("  未检测到 ffmpeg，尝试 winget 安装：")
+        print("  未检测到 ffmpeg，尝试安装：")
         print(f"    {' '.join(cmd)}")
         rc = subprocess.call(cmd)
         if rc == 0:
@@ -462,7 +338,7 @@ def _install_ffmpeg() -> int:
                 return 1
             print(f"  [OK] ffmpeg：{exe}")
             return 0
-        print(f"  winget 安装未完成（退出码 {rc}），可稍后重试或手动安装：")
+        print(f"  安装未完成（退出码 {rc}），可稍后重试或手动安装：")
         print("    下载 https://www.gyan.dev/ffmpeg/builds/ 的 release 版 zip，解压后把 bin 目录加入 PATH")
         return 1
     # Linux 默认包管理工具为 apt：自动安装 ffmpeg
@@ -514,16 +390,19 @@ def cmd_version(_args) -> int:
 
 
 def cmd_install(args) -> int:
+    """安装系统级工具：浏览器、报告工具、录屏编码器。
+
+    Python 依赖（pytest/playwright 库/requests 等）由项目 Pipfile 自动安装，
+    不需要本命令处理。
+    """
     comp = args.component or "all"
     version = getattr(args, "version", None)
     steps = {
         "all": [
-            ("all", _install_all_py),
             ("playwright", _install_playwright),
             ("allure", lambda: _install_allure(version)),
             ("ffmpeg", _install_ffmpeg),
         ],
-        "core": [("core", _install_core)],
         "playwright": [("playwright", _install_playwright)],
         "allure": [("allure", lambda: _install_allure(version))],
         "ffmpeg": [("ffmpeg", _install_ffmpeg)],
@@ -557,20 +436,23 @@ def _build_templates(mode: str) -> tuple:
     templates = {
         "conftest.py": _load_template(os.path.join("common", "conftest.py")),
         "pytest.ini": _load_template(os.path.join("common", "pytest.ini")),
-        "cases/base_case.py": _load_template(
-            os.path.join("common", "cases", "base_case.py")
+        "cases/case_base.py": _load_template(
+            os.path.join("common", "cases", "case_base.py")
         ),
+        ".gitignore": _load_template(os.path.join("common", ".gitignore")),
         "README.md": _load_template(os.path.join("common", "README.md")),
-        # 被测项目级 Pipfile：项目拥有独立 pipenv 虚拟环境（依赖 just-go 包，
-        # 一次装齐 pytest/playwright/allure 等全部运行依赖）
         "Pipfile": _load_template(os.path.join("common", "Pipfile")),
     }
     sections = ""
     if mode in ("gui", "all"):
+        templates["Pipfile"] = templates["Pipfile"].replace(
+            'requests = "*"',
+            'requests = "*"\nplaywright = "*"',
+        )
         templates.update(
             {
-                "cases/module/test_xxx.py": _load_template(
-                    os.path.join("gui", "cases", "module", "test_xxx.py")
+                "cases/login/test_login_1.py": _load_template(
+                    os.path.join("gui", "cases", "login", "test_login_1.py")
                 ),
                 "pages/__init__.py": _load_template(
                     os.path.join("gui", "pages", "__init__.py")
@@ -578,11 +460,11 @@ def _build_templates(mode: str) -> tuple:
                 "pages/base_page.py": _load_template(
                     os.path.join("gui", "pages", "base_page.py")
                 ),
-                "pages/module.py": _load_template(
-                    os.path.join("gui", "pages", "module.py")
+                "pages/login_page.py": _load_template(
+                    os.path.join("gui", "pages", "login_page.py")
                 ),
-                "tag/module.csv": _load_template(
-                    os.path.join("gui", "tag", "module.csv")
+                "tag/login.csv": _load_template(
+                    os.path.join("gui", "tag", "login.csv")
                 ),
             }
         )
@@ -593,14 +475,14 @@ def _build_templates(mode: str) -> tuple:
                 "apis/__init__.py": _load_template(
                     os.path.join("api", "apis", "__init__.py")
                 ),
-                "apis/base.py": _load_template(
+                "apis/base_api.py": _load_template(
                     os.path.join("api", "apis", "base.py")
                 ),
-                "apis/module.py": _load_template(
-                    os.path.join("api", "apis", "module.py")
+                "apis/user_manager_api.py": _load_template(
+                    os.path.join("api", "apis", "user_manager_api.py")
                 ),
-                "cases/api/test_xxx.py": _load_template(
-                    os.path.join("api", "cases", "api", "test_xxx.py")
+                "cases/api/test_login_1.py": _load_template(
+                    os.path.join("api", "cases", "api", "test_login_1.py")
                 ),
                 "tag/api.csv": _load_template(os.path.join("api", "tag", "api.csv")),
             }
@@ -647,8 +529,18 @@ def cmd_init(args) -> int:
     print(f"已在 {target} 创建测试项目骨架（类型：{mode}）：")
     for rel in templates:
         print(f"  {os.path.join(target, rel)}")
+
+    print("\n---------- 创建项目虚拟环境 ----------")
+    pipenv = shutil.which("pipenv")
+    rc = subprocess.call([pipenv, "install", "--skip-lock"], cwd=target)
+    if rc != 0:
+        print(f"虚拟环境创建失败（退出码 {rc}），可稍后手动执行：")
+        print(f"  cd {target}; pipenv install")
+    else:
+        print("虚拟环境创建完成。")
+
     print("\n下一步：")
-    print(f"  1. 编辑 {os.path.join(target, 'conftest.py')} 里的 JUSTGO_TEST_BASE_URL 为被测系统实际地址")
+    print(f"  1. 编辑 {os.path.join(target, 'conftest.py')} 里的 setup_env() 地址为被测系统实际地址")
     print(f"  2. 注册并运行：just-go add <名称> {target}")
     print("     just-go run <名称>")
     return 0
@@ -680,7 +572,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_remove.set_defaults(func=cmd_remove)
 
     p_run = sub.add_parser("run", help="运行项目测试")
-    p_run.add_argument("target", help="已注册的项目名称，或测试项目根目录路径")
+    p_run.add_argument("target", help="已注册的项目名称")
     p_run.add_argument(
         "--output",
         metavar="目录",
@@ -689,18 +581,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument(
         "pytest_args",
         nargs=argparse.REMAINDER,
-        help="透传给 pytest 的参数，如 --record=yes(录屏) --tag \"smoke and L1\" --collect-only",
+        help="透传给 pytest 的参数，如 --record=yes(录屏) --tag \"smoke and L1\" --collect-only --……",
     )
     p_run.set_defaults(func=cmd_run)
 
     p_shell = sub.add_parser(
-        "shell", help="进入虚拟环境"
+        "shell", help="进入项目虚拟环境"
     )
-    p_shell.add_argument("target", help="已注册的项目名称，或测试项目根目录路径")
+    p_shell.add_argument("target", help="已注册的项目名称")
     p_shell.set_defaults(func=cmd_shell)
 
     p_init = sub.add_parser(
-        "init", help="初始化测试项目（默认 gui；支持 [api|gui|all] 类型后缀）"
+        "init", help="初始化测试项目（默认 gui；支持 [api|gui|all] 类型后缀），默认在当前目录创建项目目录"
     )
     p_init.add_argument(
         "target",
@@ -709,14 +601,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_init.set_defaults(func=cmd_init)
 
-    p_install = sub.add_parser("install", help="安装/检查框架依赖（pipenv 管理虚拟环境）")
+    p_install = sub.add_parser("install", help="安装工具（浏览器驱动/报告/录屏）")
     p_install.add_argument(
         "component",
         nargs="?",
-        choices=["core", "playwright", "allure", "ffmpeg", "all"],
+        choices=["playwright", "allure", "ffmpeg", "all"],
         default="all",
-        help="安装组件：core(框架核心Python依赖)/playwright(浏览器)/"
-        "allure(报告工具，下载到用户目录~/.just-go/allure)/ffmpeg(桌面录屏编码器，录屏必需)/all(全部，默认)",
+        help="安装组件：playwright(浏览器)/allure(报告工具)/ffmpeg(桌面录屏编码器)/all(全部，默认)",
     )
     p_install.add_argument(
         "version",
@@ -754,8 +645,6 @@ def _extract_output(argv: list) -> tuple:
 
 def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    # 引导到 pipenv 虚拟环境（保证依赖与 pytest 在同一环境）
-    _ensure_pipenv_runtime(argv)
     pre_output = None
     if argv and argv[0] == "run":
         # 先提取 --output（run 专属选项），避免与透传参数混在一起

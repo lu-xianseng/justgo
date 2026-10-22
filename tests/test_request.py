@@ -5,8 +5,8 @@ from unittest import mock
 import pytest
 from requests.exceptions import ConnectionError
 
-from just_go.exceptions import RequestError
-from just_go.request_utils import Request
+from just_go._internal.errors import RequestError
+from just_go._internal.http import Request
 
 
 class TestSetToken:

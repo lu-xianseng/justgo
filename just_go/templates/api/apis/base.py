@@ -1,10 +1,10 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # coding=utf-8
 """接口封装基类（apis/base.py）
 
 职责：把**业务无关**的通用能力收拢到这里，让具体接口封装只写业务。
 
-本类直接继承框架的 Request（just_go.request_utils），自动获得全部 HTTP 能力：
+本类直接继承框架的 Request（just_go.http），自动获得全部 HTTP 能力：
 - get/post/put/delete/upload_file/download
 - set_token / set_cookie / get_cookies / set_proxy
 - session 复用、默认超时、异常统一转 RequestError
@@ -18,7 +18,7 @@
 """
 import os
 
-from just_go import Request
+from just_go.http import Request
 
 
 class BaseApi(Request):
@@ -34,7 +34,7 @@ class BaseApi(Request):
         self.base_url = os.environ.get("JUSTGO_TEST_BASE_URL", "").rstrip("/")
 
     def _url(self, path):
-        """拼接口地址：支持完整 URL / 以 / 开头的路径 / 不带斜杠的路径"""
+        """拼接接口地址：支持完整 URL / 以 / 开头的路径 / 不带斜杠的路径"""
         if path.startswith("http"):
             return path
         return f"{self.base_url}/{path.lstrip('/')}"

@@ -10,8 +10,8 @@ import pytest
 from _pytest.nodes import Item
 from _pytest.python import Function
 
-from just_go.exceptions import TagError
-from just_go.settings import ROOTDIR
+from just_go._internal.errors import TagError
+from just_go._internal.settings import ROOTDIR
 
 # 限定 star import 只导出公共类，避免框架命名空间被辅助符号污染
 __all__ = ["ParseTag", "UpdateTag"]

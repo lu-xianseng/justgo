@@ -11,7 +11,7 @@ from functools import wraps
 import allure
 from loguru import logger as llog
 
-from just_go.settings import LOG_PATH
+from just_go._internal.settings import LOG_PATH
 
 
 class CustomLogger:
@@ -110,6 +110,8 @@ def log(cls):
         for name, attr in base_cls.__dict__.items():
             if not callable(attr) or name.startswith("__"):
                 continue
+            if name.startswith("_"):
+                continue  # 内部方法不记录日志，也不强制要求 docstring
             if attr.__doc__ is None:
                 raise TypeError(f"{cls.__name__}.{name} 缺少文档字符串")
             if attr.__doc__.strip().startswith("__"):

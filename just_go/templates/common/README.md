@@ -41,7 +41,7 @@ pytest
 
 | 配置项 | 位置 | 说明 |
 | --- | --- | --- |
-| 被测系统地址 | conftest.py 的 JUSTGO_TEST_BASE_URL | 必改，页面跳转基址 + 报告环境信息 |
+| 被测系统地址 | conftest.py 的 setup_env() | 必改，填入 dev/test/prod 环境地址 |
 | 用例链接前缀 | conftest.py 的 JUSTGO_TEST_CASE_BASE_URL | 可选 |
 | 录屏开关 | pytest.ini 的 --record | 默认开；删掉该行即关闭 |
 | 录屏方式 | 框架内置 | 统一使用系统 ffmpeg 桌面录屏（Windows gdigrab / Linux x11grab），产出 mp4 附到报告；需已安装 ffmpeg（`just-go install ffmpeg`） |
@@ -58,9 +58,9 @@ pytest
 
 ## 依赖与虚拟环境
 
-- **本项目拥有独立的 pipenv 虚拟环境**（项目根 `Pipfile` 声明依赖 `just-go`，一次装齐
-  pytest/playwright/allure 等全部运行依赖）。`just-go run` 会自动检测并使用项目环境执行，
-  各测试项目之间依赖互不影响。
-- 进入项目环境：`just-go shell <名称>`（首次自动创建 venv 并安装，之后直接进入）。
-- 框架本体依赖由 just-go 管理：`just-go install`（core/playwright/allure/ffmpeg 可选）。
+- **本项目拥有独立的 pipenv 虚拟环境**（`just-go init` 时自动创建并安装依赖）。
+  GUI 项目自动包含 playwright，纯 API 项目不装 playwright。
+- `just-go run` 自动检测并使用项目环境执行，各测试项目之间依赖互不影响。
+- 进入项目环境：`just-go shell <名称>`。
+- 系统级工具（Chromium / allure / ffmpeg）：`just-go install` 按需安装。
 - 测试项目额外的 Python 依赖（如 redis、pymysql）：在项目环境内 `pipenv install <包名>`。

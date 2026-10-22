@@ -2,7 +2,7 @@
 """@log 类装饰器行为测试"""
 from unittest import mock
 
-from just_go import log
+from just_go.core import log
 
 
 class TestLogDecorator:
@@ -14,12 +14,12 @@ class TestLogDecorator:
                 return keyword
 
         home = Home()
-        with mock.patch("just_go.logger.logger.info") as info:
+        with mock.patch("just_go._internal.logger.logger.info") as info:
             assert home.search("手机") == "手机"
         info.assert_called_once_with("搜索关键词：手机")
 
     def test_missing_docstring_raises_typeerror(self):
-        with mock.patch("just_go.logger.logger.info"):
+        with mock.patch("just_go._internal.logger.logger.info"):
             try:
 
                 @log
@@ -43,7 +43,7 @@ class TestLogDecorator:
                 """打开页面"""
 
         home = Home()
-        with mock.patch("just_go.logger.logger.info") as info:
+        with mock.patch("just_go._internal.logger.logger.info") as info:
             home.click_btn()
             home.open()
         assert info.call_count == 2
@@ -60,6 +60,6 @@ class TestLogDecorator:
                 return 2
 
         home = Home()
-        with mock.patch("just_go.logger.logger.info") as info:
+        with mock.patch("just_go._internal.logger.logger.info") as info:
             assert home.action() == 2
         info.assert_called_once_with("子类动作")

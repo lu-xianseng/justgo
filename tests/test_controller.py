@@ -2,8 +2,8 @@
 """CaseControl 元类：用例文件与用例方法名一致性校验"""
 import pytest
 
-from just_go.controller import CaseControl
-from just_go.exceptions import CaseError
+from just_go._internal.controller import CaseControl
+from just_go._internal.errors import CaseError
 
 
 def _make_case(module_name="test_login", **attrs):

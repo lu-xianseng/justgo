@@ -2,22 +2,25 @@
 # coding=utf-8
 """页面对象统一出口（pages/__init__.py）
 
-新增页面对象后，在这里集中导出，用例统一从 pages 导入：
-    from pages import ModulePage      # 直接导入页面对象类
-    from pages import PageExport      # 或通过统一出口取用
+PageExport 多继承所有页面对象 + 断言类，用例里 def test_xxx(page) 直接调：
+    page.login_input_account("admin")
+    page.assert_visible("#submit")
+    page.assert_equal("ok", resp["status"])
 
-与接口封装侧的 apis/__init__.py（ApiExport）结构对称。
+新增页面对象后：
+1. 在 pages/ 下新建 xxx_page.py，写类继承 BasePage
+2. 在这里 import 并加到 PageExport 的继承列表
 """
+import pytest
+from just_go.core import log
+from just_go.asserts import SyncAssert, AssertCommon
 from .base_page import BasePage
-from .module import ModulePage
-
-__all__ = ["BasePage", "ModulePage", "PageExport"]
+from .login_page import LoginPage
 
 
-class PageExport:
-    """页面对象统一出口：先传 page（框架 fixture），再取各页面对象"""
+@log
+class PageExport(LoginPage, SyncAssert, AssertCommon):
+    """页面对象 + 断言统一出口：conftest.py 自动把 page fixture 包装成此类型"""
 
-    def __init__(self, page):
-        self.page = page
-        # 新增页面对象后在这里挂载，例如：self.home_page = HomePage(page)
-        self.module_page = ModulePage(page)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)

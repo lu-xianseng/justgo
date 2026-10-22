@@ -2,7 +2,7 @@
 """WebUI 页面能力单元测试（mock Page 验证方法转发，不启动真实浏览器）"""
 from unittest import mock
 
-from just_go.browser_utils import WebUI
+from just_go._internal.web import SyncWebUI
 
 
 class FakePage:
@@ -26,7 +26,7 @@ class FakePage:
 
 def make_webui():
     page = FakePage()
-    return WebUI(page), page
+    return SyncWebUI(page), page
 
 
 class TestScroll:
@@ -55,7 +55,7 @@ class TestScreenshot:
     def test_screenshot_attaches_to_allure(self):
         w, page = make_webui()
         page.screenshot = mock.Mock(return_value=b"png-bytes")
-        with mock.patch("just_go.browser_utils.allure.attach") as attach:
+        with mock.patch("just_go._internal.web.allure.attach") as attach:
             w.screenshot(name="step1")
         page.screenshot.assert_called_once()
         attach.assert_called_once()

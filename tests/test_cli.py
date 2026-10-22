@@ -78,7 +78,7 @@ def test_cmd_run_uses_project_venv(tmp_path, monkeypatch):
 
 
 def test_cmd_run_fallback_to_framework(tmp_path, monkeypatch):
-    """被测项目无 venv：回退框架环境（sys.executable + 注入框架根）"""
+    """被测项目无 venv：用当前 Python 环境直接执行"""
     proj = _mk_project(tmp_path, with_pipfile=False)
     calls = []
     monkeypatch.setattr(cli, "_project_venv_path", lambda root: None)
@@ -88,8 +88,7 @@ def test_cmd_run_fallback_to_framework(tmp_path, monkeypatch):
     pos_args, kwargs = calls[0]
     cmd = pos_args[0]
     assert cmd[0] == sys.executable
-    env = kwargs["env"]
-    assert cli.FRAMEWORK_ROOT in env["PYTHONPATH"].split(os.pathsep)
+    assert "PYTHONPATH" not in kwargs["env"] or cli.FRAMEWORK_ROOT not in kwargs["env"].get("PYTHONPATH", "")
 
 
 def test_cmd_shell_auto_creates_env(tmp_path, monkeypatch):

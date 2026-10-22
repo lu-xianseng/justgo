@@ -2,7 +2,36 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 版本号递增规则：修复 `x.y.patch+1`，新功能 `x.minor+1`，不兼容变更 `major+1`。
-发布到 PyPI 后同版本不可覆盖，发新版必须递增版本号。
+
+## [0.2.0] - 2026-10-22
+
+### 新增
+- **异步支持**：协程用例可直接使用web异步方法
+- **分类导入**：用户通过公开模块导入
+- **内部实现隐藏**：代码全部移入 `just_go/_internal/`，外层同名文件仅做 re-export 壳
+- **setup_env()**：`just_go.core` 提供 `setup_env(base_urls, case_base_url="")`，一行替代 conftest.py 里的多环境样板代码
+
+### 重构
+- **CLI 精简**：删除 pipenv 虚拟环境引导死代码（`_ensure_pipenv_runtime`/`_pipenv_install`/`_parse_pyproject_deps`/`_install_core`/`_install_all_py`/`_pipenv_venv_path`/`_is_venv`）
+- `just-go install` 只安装系统级工具（playwright 浏览器/allure 报告工具/ffmpeg 录屏编码器），Python 依赖由项目 Pipfile 自动安装
+- 删除 `cmd_run` 里的 PYTHONPATH 回退逻辑
+
+### 修复
+- 见代码
+
+### 测试
+- 全量 109 用例通过
+
+## [0.1.9] - 2026-10-21
+
+### 新增
+- 项目独立虚拟环境创建与使用
+
+### 修复
+- 无
+
+### 测试
+- 全量 102 用例通过、ruff 通过
 
 ## [0.1.8] - 2026-10-21
 

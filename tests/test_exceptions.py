@@ -2,7 +2,7 @@
 """exceptions 异常体系单元测试"""
 import pytest
 
-from just_go.exceptions import (
+from just_go._internal.errors import (
     BrowserError,
     CaseError,
     ConfigError,

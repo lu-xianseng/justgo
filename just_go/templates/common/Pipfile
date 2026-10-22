@@ -5,6 +5,13 @@ name = "pypi"
 
 [packages]
 just-go = "*"
+pytest = ">=8.3.4"
+pytest-rerunfailures = "*"
+allure-python-commons = ">=2.13.5"
+allure-pytest = ">=2.13.5"
+loguru = ">=0.7.3"
+faker = "*"
+requests = "*"
 
 [requires]
 python_version = "3"

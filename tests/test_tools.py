@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """GenerateReport：allure 版本探测与命令组装（单文件 / 中文 / 项目名）"""
-import just_go.tools as tools
-from just_go.tools import GenerateReport
+import just_go._internal.tools as tools
+from just_go._internal.tools import GenerateReport
 
 
 class FakeResult:

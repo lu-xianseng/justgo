@@ -2,7 +2,7 @@
 """AssertCommon 断言单元测试"""
 import pytest
 
-from just_go.assertion import AssertCommon
+from just_go._internal.asserts import AssertCommon
 
 
 class TestAssertCommon:

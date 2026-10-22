@@ -75,11 +75,11 @@ flowchart LR
 
 ```bash
 pip install just-go
-just-go install          # 安装运行依赖：核心库 / Chromium / allure / ffmpeg
+just-go install          # 安装系统级工具：Chromium / allure / ffmpeg
 ```
 
-> `install` 按需指定组件：`just-go install [core|playwright|allure|ffmpeg|all]`。
-> 首次执行会自动引导创建 pipenv 虚拟环境，后续命令自动复用。
+> `install` 按需指定组件：`just-go install [playwright|allure|ffmpeg|all]`。
+> Python 依赖（pytest/requests/allure 库等）由项目虚拟环境自动安装，不需要本命令处理。
 
 ### 2. 初始化测试项目
 
@@ -93,14 +93,16 @@ just-go init "demo[all]"      # 两套都生成
 
 ### 3. 配置被测地址
 
-编辑测试项目 `conftest.py`（骨架已内置多环境 `BASE_URLS` 字典，默认走 `dev`）：
+编辑测试项目 `conftest.py`（骨架已内置 `setup_env()` 调用，默认走 `dev`）：
 
 ```python
-BASE_URLS = {
+from just_go.core import setup_env
+
+setup_env({
     "dev":  "http://192.168.1.10:8080",   # 必改：填入实际地址
     "test": "http://test.example.com",
     "prod": "https://www.example.com",
-}
+})
 ```
 
 ### 4. 注册并运行
@@ -121,94 +123,76 @@ just-go run demo --collect-only             # 只收集用例，不执行
 
 ## 用例编写
 
-`page` 是框架提供的 fixture（Playwright 页面），**同步 / 异步两种写法可以混用**：
+`page` 是框架提供的 fixture，conftest.py 自动包装成 `PageExport`（页面对象 + 断言统一出口）。
+用例里直接调 `page.xxx()`，不需要手动 import 页面对象：
 
 ```python
-# 同步（默认写法）
-def test_login(page):
-    page.goto("https://example.com")
-    page.fill("#user", "admin")
-    assert "登录成功" in page.content()
+from cases.case_base import CaseBase
 
-# 异步：用例内用 await，无需安装 pytest-asyncio
-async def test_login(page):
-    await page.goto("https://example.com")
-    await page.fill("#user", "admin")
-    assert "登录成功" in await page.content()
+class TestLogin(CaseBase):
+    def test_login_1(self, page):
+        """输入正确账号密码，登录系统"""
+        page.input_account("admin")       # 页面对象方法
+        page.input_password("password")
+        page.submit()
+        page.assert_visible(".welcome")   # UI 断言
+        page.assert_equal("ok", resp["status"])  # 数据断言
 ```
 
-内置断言（`from just_go import AssertCommon`）：
+同步用例 `def test_xxx(page)`，异步用例 `async def test_xxx(page)`（方法需 await）。
+
+内置断言（PageExport 已合并 SyncAssert + AssertCommon，直接用）：
+
+| 断言 | 说明 |
+| --- | --- |
+| `assert_equal(expect, actual)` | 相等 |
+| `assert_in(expect, actual)` | 包含 |
+| `assert_re_check_equal(pattern, text)` | 正则匹配 |
+| `assert_visible(locator)` | 元素可见 |
+| `assert_text(locator, expected)` | 元素文本 |
+
+自定义异常体系（`from just_go.errors import JustGoError, RequestError, RecordError`）：
 
 ```python
-common = AssertCommon()
-common.assert_equal("ok", resp.get("status"))       # 相等
-common.assert_in("手机", page_text)                 # 包含
-common.assert_re_check_equal(r"\d{6}", page_text)   # 正则匹配
-```
-
-自定义异常体系（基类 `JustGoError`），测试项目可统一捕获框架错误：
-
-```python
-from just_go import JustGoError, RequestError, RecordError
-
 try:
     ...
 except JustGoError as e:   # 捕获所有框架自定义异常
     ...
 ```
 
-> 可选：用例基类声明 `metaclass=CaseControl` 可开启命名校验（用例方法名须包含用例文件名）。
-
 ## 页面对象（GUI）
 
-骨架 `pages/base_page.py` **继承框架的 `WebUI`**（just_go.browser_utils），
-自动获得框架层通用页面能力；**高频操作直接用 Playwright 原生方法**
-（`self.page.fill/click/press/select_option/...`，同名同参数，不再重复封装）。
+`pages/base_page.py` 继承框架 `SyncWebUI` / `AsyncWebUI`，自动获得浏览器操作能力。
+`pages/login_page.py` 按业务模块写页面对象（一个页面一个文件）。
 
-**框架层能力（继承 WebUI）**
-
-| 能力 | 说明 |
-| --- | --- |
-| `scroll_to_bottom()` / `scroll_to(selector)` | 滚动到底部 / 滚动元素进入视口 |
-| `upload_file(selector, path)` | 文件上传（单文件或多文件） |
-| `screenshot(name, full_page)` | 关键步骤主动截图，自动附加 allure |
-| `switch_to_frame(selector)` / `exit_frame()` | iframe 进入与退出 |
-| `wait_for_text(text, timeout)` | 等待文本出现 |
-| `get_attribute(selector, name)` | 获取元素属性 |
-| `execute_js(script, arg)` | 执行 JavaScript |
-| `mock_route(pattern, json=...)` / `unroute(pattern)` | 接口未就绪时模拟响应（联调利器） |
-| `drag_and_drop(source, target)` | 拖拽操作 |
-| `intercept_response(api)` | 装饰器：拦截接口响应返回对象 |
-| `all_tabs()` / `create_new_instance()` | 多标签页管理 |
-
-**骨架补充的便捷方法（Playwright 原生没有的）**
-
-| 方法 | 说明 |
-| --- | --- |
-| `wait_visible(selector)` | 等待元素可见 |
-| `get_text(selector)` | 获取文本（去首尾空白） |
-| `is_visible(selector)` | 元素是否可见 |
-| `switch_to_latest_tab()` / `close_current_tab()` | 多标签页管理 |
-
-`pages/module.py` 按业务模块继承基类、封装页面操作（一个模块一个文件），用例层只调用业务动作：
+新增页面对象步骤：
+1. 在 `pages/` 下新建 `xxx_page.py`，写类继承 `BasePage`
+2. 在 `pages/__init__.py` 的 `PageExport` 继承列表里加上新类
 
 ```python
+# pages/login_page.py
 class LoginPage(BasePage):
-    def login(self, username, password):
-        self.page.fill("#user", username)      # Playwright 原生
-        self.page.fill("#pwd", password)
-        self.page.click("#submit")
-        self.wait_visible(".welcome")          # BasePage 便捷方法
+    _account_input = "#username"
+    _submit_btn = "#submit"
+
+    def input_account(self, account):
+        """输入账号 {{account}}"""
+        self.page.fill(self._account_input, account)
+
+    def submit(self):
+        """点击登录"""
+        self.page.click(self._submit_btn)
 ```
 
-所有页面对象经 `pages/__init__.py` 统一导出（`PageExport` 出口模式），用例从 `pages` 导入。
+`PageExport` 多继承所有页面对象 + 断言类，conftest.py 自动把 page fixture 包装成 PageExport。
+用例里直接调 `page.input_account("admin")`，不需要手动 import。
 
 ---
 
 ## 接口封装（API）
 
-`init [api]` 生成的骨架与 GUI **结构对称**：`apis/base.py` **直接继承框架 `Request`**，
-`apis/module.py` 按模块封装接口（一个模块一个文件），`apis/__init__.py` 统一导出。
+`init [api]` 生成的骨架：`apis/base_api.py` 继承框架 `Request`，
+`apis/user_manager_api.py` 按模块封装接口（一个模块一个文件），`apis/__init__.py` 统一导出。
 
 `BaseApi` 继承 `Request` 自动获得全部 HTTP 能力，只额外提供基址拼接：
 
@@ -220,24 +204,24 @@ class LoginPage(BasePage):
 | `base_url` / `_url(path)` | 本类新增：`JUSTGO_TEST_BASE_URL` 基址 + 拼接完整接口地址 |
 
 ```python
-from .base import BaseApi
+from .base_api import BaseApi
 
-class UserApi(BaseApi):
+class UserManagerApi(BaseApi):
     def login(self, username, password):
         """登录：POST /api/login"""
         resp = self.post(self._url("/api/login"), json={"username": username, "password": password})
         return resp.json()
 
-user_api = UserApi()
+user_manager_api = UserManagerApi()
 ```
 
 用例直接调接口 + 断言（不需要 page fixture）：
 
 ```python
-from apis import user_api
+from apis import user_manager_api
 
-def test_login_1001():
-    data = user_api.login("admin", "123456")
+def test_login_1():
+    data = user_manager_api.login("admin", "123456")
     assert data["code"] == 0
 ```
 
@@ -250,7 +234,7 @@ def test_login_1001():
 `config.run.browser_type` 支持 `chromium` / `firefox` / `webkit`（默认 chromium），在项目 conftest.py 顶部切换，**不用改任何用例**：
 
 ```python
-from just_go import config
+from just_go.core import config
 config.run.browser_type = "firefox"   # 或 webkit
 ```
 
@@ -270,7 +254,7 @@ config.run.storage_state = "state.json"   # 相对路径基于测试项目根
 
 ### 多环境切换
 
-骨架 conftest.py 内置 `BASE_URLS`（dev / test / prod），运行时指定环境：
+骨架 conftest.py 内置 `setup_env({...})`（dev / test / prod），运行时指定环境：
 
 ```bash
 just-go run demo --env prod    # 或直接在项目根: pytest --env prod
@@ -313,7 +297,7 @@ def test_login(case):
 登录拿到 token 后一键注入全局请求头，后续请求自动携带：
 
 ```python
-from just_go import Request
+from just_go.http import Request
 
 api = Request()
 api.set_token(token, prefix="Bearer ")          # Authorization: Bearer <token>
@@ -327,7 +311,7 @@ api.set_token(token, header_name="X-Token")     # 自定义请求头名
 装饰在类上，该类（含父类）的公共方法**被调用时自动把方法文档记为日志**，对页面对象封装尤其有用——每个业务操作自动变成一条可读日志，Allure 报告里能看到完整操作轨迹。
 
 ```python
-from just_go import log
+from just_go.core import log
 
 @log
 class HomePage(BasePage):
@@ -345,6 +329,7 @@ class HomePage(BasePage):
 
 约定（装饰器强制）：
 - 类及父类的公共方法**必须写 docstring**，缺失直接抛 `TypeError` 提醒补文档，保证所有操作都有日志可查；
+- `_` 开头的内部方法不记录日志，也不强制要求 docstring；
 - 文档中可用 `{{参数名}}` 占位实际调用值，让日志带上关键数据（搜索词、订单号等）。
 
 ## 桌面录屏（ffmpeg）
@@ -422,7 +407,7 @@ demo/
 
 | 配置项 | 位置 | 说明 |
 | --- | --- | --- |
-| `BASE_URLS` + `JUSTGO_TEST_BASE_URL` | 项目 `conftest.py` | 被测系统地址（**必改**），写入报告环境信息 |
+| `setup_env({...})` + `JUSTGO_TEST_BASE_URL` | 项目 `conftest.py` | 被测系统地址（**必改**），写入报告环境信息 |
 | `JUSTGO_TEST_CASE_BASE_URL` | 项目 `conftest.py` | 测试管理平台（如禅道）用例链接前缀（可选） |
 | `--env <名称>` | `just-go run` / `pytest` | 运行环境（dev/test/prod），配合 `BASE_URLS` 切换 |
 | `--record` | 项目 `pytest.ini` | 录屏开关（默认 yes） |
@@ -436,7 +421,7 @@ demo/
 
 | 命令 | 作用 |
 | --- | --- |
-| `just-go install [core\|playwright\|allure\|ffmpeg\|all]` | 安装 / 检查运行依赖（默认 all） |
+| `just-go install [playwright\|allure\|ffmpeg\|all]` | 安装 / 检查系统级工具（默认 all） |
 | `just-go init <目录[类型]>` | 初始化测试项目骨架（gui / api / all，默认 gui） |
 | `just-go add <名称> <路径>` | 注册测试项目 |
 | `just-go list` | 列出已注册项目（含路径有效性标记） |
@@ -455,11 +440,9 @@ demo/
 - Allure 报告需 Java：`just-go install allure` 检测缺失会自动尝试安装（Windows 用 winget 装 Temurin JDK，Linux 用 apt 装 OpenJDK 17），装不了会给出手动下载指引
 - ffmpeg：录屏必需，`just-go install ffmpeg` 自动安装（Windows winget / Linux apt），或手动下载加入 PATH
 
-> **测试项目虚拟环境**：`just-go init` 生成的骨架自带项目级 `Pipfile`（依赖 `just-go` 包，
-> 一次装齐 pytest/playwright/allure 等运行依赖）。每个测试项目拥有**独立的 pipenv 虚拟环境**，
-> `just-go shell <名称>` 进入（首次自动创建安装），`just-go run` 自动检测并使用项目环境执行；
-> 旧项目（无 Pipfile/venv）自动回退框架环境，行为不变。
-> 测试项目额外的 Python 依赖（如 redis、pymysql）在项目环境内 `pipenv install <包名>`，框架不代管。
+> **测试项目虚拟环境**：`just-go init` 生成骨架时自动创建项目级 pipenv 虚拟环境并安装依赖。
+> GUI 项目自动包含 playwright，纯 API 项目不装 playwright。
+> `just-go run` 自动检测并使用项目环境执行；项目额外依赖在环境内 `pipenv install <包名>`。
 
 ---
 
@@ -487,7 +470,7 @@ demo/
 可以。项目根 `conftest.py` 已声明框架插件，在项目根直接敲 `pytest` 即可，效果相同。
 
 **导入 just_go 报 `SoftwareNotInstallError`？**
-说明依赖（如 playwright）未安装到当前环境：在框架环境内运行 `just-go install`，或确认当前 Python 与框架运行环境一致（pipenv 环境会自动引导）。
+说明项目虚拟环境未创建或依赖未装全：在项目目录执行 `pipenv install`，或重新 `just-go init` 生成项目（自动创建环境）。
 
 ---
 

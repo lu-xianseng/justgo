@@ -24,14 +24,14 @@ class SoftwareNotInstallError(JustGoError):
     """软件未安装：ffmpeg、allure、playwright 等运行依赖缺失"""
 
     def __init__(self, software_name):
-        super().__init__(f"'{software_name}' Not install")
+        super().__init__(f"'{software_name}' 未安装")
 
 
 class FileNotExistsError(JustGoError):
     """文件不存在：配置文件、数据文件、产物文件缺失"""
 
     def __init__(self, file):
-        super().__init__(f"'{file}' Not Exists")
+        super().__init__(f"文件不存在: '{file}'")
 
 
 class CaseError(JustGoError):

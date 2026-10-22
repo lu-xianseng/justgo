@@ -6,8 +6,8 @@
 just-go 框架的 pytest 插件入口。
 
 原为测试项目根目录的 conftest.py，框架独立后迁移至此。
-通过 `just-go run <项目>` 执行时由 CLI 注入 `-p just_go.plugin` 加载；
-也可在测试项目 conftest.py 中声明 `pytest_plugins = ["just_go.plugin"]` 后直接敲 pytest。
+通过 `just-go run <项目>` 执行时由 CLI 注入 `-p just_go._internal.plugin` 加载；
+也可在测试项目 conftest.py 中声明 `pytest_plugins = ["just_go._internal.plugin"]` 后直接敲 pytest。
 
 用例写法支持两种：
 - 同步：def test_xxx(page)，page 为 playwright.sync_api 页面（默认，原有方式）
@@ -24,11 +24,11 @@ import pytest
 from _pytest.python import Function
 from playwright.sync_api import Page
 
-from just_go.exceptions import ConfigError
-from just_go.logger import custom_logger, logger
-from just_go.parse_tag import ParseTag  # 显式导入，确保使用 tag/ 目录限定的新版 ParseTag
-from just_go.settings import ROOTDIR, TEMP_PATH, TMP_REPORT_PATH, config
-from just_go.tools import generate_report, record
+from just_go._internal.errors import ConfigError
+from just_go._internal.logger import custom_logger, logger
+from just_go._internal.parse_tag import ParseTag  # 显式导入，确保使用 tag/ 目录限定的新版 ParseTag
+from just_go._internal.settings import ROOTDIR, TEMP_PATH, TMP_REPORT_PATH, config
+from just_go._internal.tools import generate_report, record
 
 parse_tag = ParseTag()
 enable_record = False
@@ -164,12 +164,19 @@ def pytest_pyfunc_call(pyfuncitem):
     if loop is None or loop.is_closed():
         loop = asyncio.new_event_loop()
         pyfuncitem._justgo_loop = loop
+        own_loop = True
+    else:
+        own_loop = False
     # 与 pytest 原生行为一致：只传用例声明的 fixture 参数（避免注入未声明的自动 fixture）
     testargs = {
         arg: pyfuncitem.funcargs[arg]
         for arg in pyfuncitem._fixtureinfo.argnames
     }
-    loop.run_until_complete(pyfuncitem.obj(**testargs))
+    try:
+        loop.run_until_complete(pyfuncitem.obj(**testargs))
+    finally:
+        if own_loop:
+            loop.close()
     return True
 
 
@@ -187,15 +194,16 @@ def pytest_runtest_makereport(item, call):
     if report.when == "call":
         if report.failed and "page" in item.funcargs:
             page: Page = item.funcargs["page"]
-            pages = page.context.pages
             try:
                 screenshot_path = f"{TEMP_PATH}/screenshot-{item.name}.png"
+                # 截最新打开的 tab（用户切换 tab 后通常在新 tab 上操作，失败时截最新的）
+                target_page = page.context.pages[-1]
                 loop = getattr(item, "_justgo_loop", None)
                 if loop is not None and not loop.is_closed():
                     # 异步模式：screenshot 是协程，需在事件循环中执行
-                    loop.run_until_complete(pages[-1].screenshot(path=screenshot_path))
+                    loop.run_until_complete(target_page.screenshot(path=screenshot_path))
                 else:
-                    pages[-1].screenshot(path=screenshot_path)
+                    target_page.screenshot(path=screenshot_path)
                 allure.attach.file(
                     screenshot_path,
                     name="Failure Screenshot",
@@ -320,14 +328,25 @@ def _async_page_lifecycle(request, page_setup: dict):
 
 
 @pytest.fixture
-def page(request):
-    """页面 fixture：按用例写法自动路由到同步/异步 Playwright 驱动。
+def _pw_page(request):
+    """底层 Playwright Page fixture（同步/异步自动路由）。
 
-    - def test_xxx(page)：同步驱动（原有方式）；
-    - async def test_xxx(page)：异步驱动，用例内可 await page.xxx()。
+    用户一般不直接用，通过覆盖 `page` fixture 包装成自己的 PageExport。
     """
     page_setup = _page_setup()
     if inspect.iscoroutinefunction(request.node.obj):
         yield from _async_page_lifecycle(request, page_setup)
     else:
         yield from _sync_page_lifecycle(page_setup)
+
+
+@pytest.fixture
+def page(_pw_page):
+    """页面 fixture：默认直接返回底层 Playwright Page。
+
+    在 conftest.py 中覆盖此 fixture 可包装成 PageExport：
+        @pytest.fixture
+        def page(_pw_page):
+            return PageExport(_pw_page)
+    """
+    return _pw_page

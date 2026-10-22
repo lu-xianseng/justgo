@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """MockData.get_file_path：限定被测项目内查找，跳过产物/虚拟环境目录"""
-from just_go.mock import MockData
+from just_go._internal.mock import MockData
 
 
 class TestGetFilePath:

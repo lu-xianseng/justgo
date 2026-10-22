@@ -10,8 +10,8 @@ import requests
 from requests import Response
 from requests.exceptions import RequestException
 
-from just_go.exceptions import RequestError
-from just_go.logger import logger
+from just_go._internal.errors import RequestError
+from just_go._internal.logger import logger
 
 
 class Request:
@@ -88,7 +88,9 @@ class Request:
             requests.Response 对象
         """
         if headers:
-            self.headers.update(headers)
+            merged_headers = {**self.headers, **headers}
+        else:
+            merged_headers = self.headers
         _timeout = timeout if timeout is not None else self.timeout
         _retries = self.retry_times if retries is None else retries
         last_exc = None
@@ -100,7 +102,7 @@ class Request:
                     params=params,
                     data=data,
                     json=json,
-                    headers=self.headers,
+                    headers=merged_headers,
                     timeout=_timeout,
                     **kwargs,
                 )
@@ -186,14 +188,16 @@ class Request:
             data: 其他表单字段
         """
         if headers:
-            self.headers.update(headers)
+            merged_headers = {**self.headers, **headers}
+        else:
+            merged_headers = self.headers
         _timeout = timeout if timeout is not None else self.timeout
         try:
             return self.session.post(
                 url,
                 files=files,
                 data=data,
-                headers=self.headers,
+                headers=merged_headers,
                 timeout=_timeout,
                 **kwargs,
             )
@@ -217,13 +221,15 @@ class Request:
             save_path: 保存路径（父目录自动创建）
         """
         if headers:
-            self.headers.update(headers)
+            merged_headers = {**self.headers, **headers}
+        else:
+            merged_headers = self.headers
         _timeout = timeout if timeout is not None else self.timeout
         try:
             with self.session.get(
                 url,
                 params=params,
-                headers=self.headers,
+                headers=merged_headers,
                 timeout=_timeout,
                 stream=True,
                 **kwargs,

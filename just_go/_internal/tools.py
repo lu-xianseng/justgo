@@ -14,8 +14,8 @@ from typing import Optional
 import allure
 import pytest
 
-from just_go.exceptions import RecordError, SoftwareNotInstallError
-from just_go.settings import (
+from just_go._internal.errors import RecordError, SoftwareNotInstallError
+from just_go._internal.settings import (
     ALLURE_PATH,
     PROJECT_NAME,
     REPORT_PATH,
@@ -32,6 +32,7 @@ class GenerateReport:
         "L4": allure.severity_level.MINOR,
         "L5": allure.severity_level.TRIVIAL,
     }
+    _registered_markers = set()  # 跨用例去重，避免重复注册 marker 警告
 
     def __init__(self):
         # 报告目录延迟到 run() 生成时创建（避免 import just_go 即产生空报告目录）
@@ -158,7 +159,9 @@ class GenerateReport:
         item.add_marker(allure.story(tags.get("场景描述")))
         for attr, value in tags.items():
             if value and attr not in ["用例ID", "跳过原因"]:
-                item_config.addinivalue_line("markers", f"{value}: {value}")
+                if value not in self._registered_markers:
+                    self._registered_markers.add(value)
+                    item_config.addinivalue_line("markers", f"{value}: {value}")
                 item.add_marker(getattr(pytest.mark, value))
 
 
