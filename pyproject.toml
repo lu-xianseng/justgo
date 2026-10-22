@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "just-go"
-version = "0.2.1"
+version = "0.2.2"
 description = "Web 自动化测试框架：框架与测试代码分离，一条命令指定测试项目执行自动化测试并产出报告"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -53,6 +53,7 @@ py-modules = ["cli"]
 just_go = [
     "configs/*.ini",
     "templates/common/*",
+    "templates/common/.*",
     "templates/common/cases/*",
     "templates/gui/*",
     "templates/gui/cases/login/*",
