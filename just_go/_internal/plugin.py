@@ -129,6 +129,13 @@ def pytest_addoption(parser):
         default=None,
         help="运行环境标识（如 dev/test/prod），写入 JUSTGO_ENV 供测试项目按环境加载配置",
     )
+    parser.addoption(
+        "--report-single-mode",
+        action="store",
+        default="yes",
+        choices=["yes", "no"],
+        help="报告生成模式：yes=单文件 HTML，no=目录模式",
+    )
 
 
 @pytest.hookimpl(trylast=True)
@@ -144,6 +151,7 @@ def pytest_configure(config):
     if config.getoption("--record") == "yes":
         global enable_record
         enable_record = True
+    generate_report.single_file = config.getoption("--report-single-mode") != "no"
 
 
 def pytest_runtest_call(item):
@@ -192,15 +200,15 @@ def pytest_runtest_makereport(item, call):
         report.when if report.when != "call" else "case"
     )
     if report.when == "call":
+        item._justgo_failed = report.failed
         if report.failed and "page" in item.funcargs:
-            page: Page = item.funcargs["page"]
+            page = item.funcargs["page"]
+            raw_page = getattr(page, "page", page)
             try:
                 screenshot_path = f"{TEMP_PATH}/screenshot-{item.name}.png"
-                # 截最新打开的 tab（用户切换 tab 后通常在新 tab 上操作，失败时截最新的）
-                target_page = page.context.pages[-1]
+                target_page = raw_page.context.pages[-1]
                 loop = getattr(item, "_justgo_loop", None)
                 if loop is not None and not loop.is_closed():
-                    # 异步模式：screenshot 是协程，需在事件循环中执行
                     loop.run_until_complete(target_page.screenshot(path=screenshot_path))
                 else:
                     target_page.screenshot(path=screenshot_path)
@@ -216,11 +224,12 @@ def pytest_runtest_makereport(item, call):
     if report.when == "teardown" and "page" in item.funcargs:
         video_file = record.record_file
         if video_file:
-            allure.attach.file(
-                video_file,
-                name="Test Record",
-                attachment_type=record.attachment_type,
-            )
+            if getattr(item, "_justgo_failed", False):
+                allure.attach.file(
+                    video_file,
+                    name="Test Record",
+                    attachment_type=record.attachment_type,
+                )
             try:
                 os.remove(video_file)
             except Exception:
@@ -228,7 +237,6 @@ def pytest_runtest_makereport(item, call):
                 try:
                     os.remove(video_file)
                 except OSError:
-                    # 文件仍被占用（如录屏进程尚未完全释放）时保留文件，避免 teardown 崩溃
                     logger.warning(f"录屏文件未能删除，已保留: {video_file}")
 
 

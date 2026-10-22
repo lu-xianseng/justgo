@@ -35,9 +35,9 @@ class GenerateReport:
     _registered_markers = set()  # 跨用例去重，避免重复注册 marker 警告
 
     def __init__(self):
-        # 报告目录延迟到 run() 生成时创建（避免 import just_go 即产生空报告目录）
         self.__report_path = None
         self.__cmd = None
+        self.single_file = True
 
     @staticmethod
     def _allure_version() -> tuple:
@@ -85,7 +85,7 @@ class GenerateReport:
             self.__report_path,
         ]
         ver = self._allure_version()
-        if ver >= (2, 24, 0):
+        if self.single_file and ver >= (2, 24, 0):
             cmd.append("--single-file")
         if ver >= (2, 30, 0):
             cmd += ["--name", self.report_name, "--lang", self.report_language]
@@ -176,7 +176,7 @@ class Record:
     需要系统已安装 ffmpeg（`just-go install ffmpeg` 自动安装或手动加入 PATH）。
     """
 
-    def __init__(self, framerate=15, source="desktop", out_type="mp4"):
+    def __init__(self, framerate=10, source="desktop", out_type="mp4"):
         self.__exe = None
         if out_type not in ["webm", "mp4"]:
             raise ValueError("out_type must be webm or mp4")
@@ -218,15 +218,16 @@ class Record:
         if self.__out_type == "mp4":
             self.__base_cmd = [
                 self.__exe,
+                "-loglevel", "error",
                 *input_args,
                 "-vf",
                 "format=yuv420p",
                 "-c:v",
                 "libx264",
                 "-crf",
-                "15",
+                "23",
                 "-b:v",
-                "500k",
+                "200k",
                 "-c:a",
                 "aac",
                 "-b:a",
@@ -235,18 +236,18 @@ class Record:
         if self.__out_type == "webm":
             self.__base_cmd = [
                 self.__exe,
+                "-loglevel", "error",
                 *input_args,
                 "-vf",
                 "format=yuv420p",
                 "-c:v",
                 "libvpx",
                 "-crf",
-                "15",
+                "23",
                 "-b:v",
-                "500k",
+                "200k",
                 "-c:a",
                 "libvorbis",
-                # "-loglevel", "error",
             ]
 
     @property
