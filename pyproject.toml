@@ -33,6 +33,7 @@ classifiers = [
     "Topic :: Software Development :: Testing",
 ]
 dependencies = [
+    "playwright",
     "pipenv",
 ]
 

@@ -445,10 +445,6 @@ def _build_templates(mode: str) -> tuple:
     }
     sections = ""
     if mode in ("gui", "all"):
-        templates["Pipfile"] = templates["Pipfile"].replace(
-            'requests = "*"',
-            'requests = "*"\nplaywright = "*"',
-        )
         templates.update(
             {
                 "cases/login/test_login_1.py": _load_template(
