@@ -22,7 +22,6 @@ import time
 import allure
 import pytest
 from _pytest.python import Function
-from playwright.sync_api import Page
 
 from just_go._internal.errors import ConfigError
 from just_go._internal.logger import custom_logger, logger
