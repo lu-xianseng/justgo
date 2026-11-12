@@ -1,16 +1,11 @@
 # -*- coding: utf-8 -*-
 """plugin._page_setup：浏览器类型与登录态参数构造（不启动浏览器）"""
 import os
-import shutil
 
 import pytest
 
 from just_go._internal.errors import ConfigError
 from just_go._internal.plugin import _page_setup, config
-
-
-def _clean(setup):
-    shutil.rmtree(setup["user_data_dir"], ignore_errors=True)
 
 
 def _restore():
@@ -22,11 +17,8 @@ def test_default_browser_type():
     try:
         _restore()
         setup = _page_setup()
-        try:
-            assert setup["browser_type"] == "chromium"
-            assert "storage_state" not in setup
-        finally:
-            _clean(setup)
+        assert setup["browser_type"] == "chromium"
+        assert "storage_state" not in setup["context"]
     finally:
         _restore()
 
@@ -36,10 +28,7 @@ def test_switch_browser_type():
         _restore()
         config.run.browser_type = "firefox"
         setup = _page_setup()
-        try:
-            assert setup["browser_type"] == "firefox"
-        finally:
-            _clean(setup)
+        assert setup["browser_type"] == "firefox"
     finally:
         _restore()
 
@@ -60,10 +49,7 @@ def test_storage_state_absolute_path():
         state = os.path.abspath(__file__)  # 用存在的文件模拟 state
         config.run.storage_state = state
         setup = _page_setup()
-        try:
-            assert setup["storage_state"] == state
-        finally:
-            _clean(setup)
+        assert setup["context"]["storage_state"] == state
     finally:
         _restore()
 
@@ -75,20 +61,18 @@ def test_storage_state_relative_resolves_against_rootdir():
 
         config.run.storage_state = os.path.relpath(__file__, ROOTDIR)
         setup = _page_setup()
-        try:
-            assert os.path.isabs(setup["storage_state"])
-            assert os.path.exists(setup["storage_state"])
-        finally:
-            _clean(setup)
+        assert os.path.isabs(setup["context"]["storage_state"])
+        assert os.path.exists(setup["context"]["storage_state"])
     finally:
         _restore()
 
 
-def test_storage_state_missing_file_raises():
+def test_storage_state_missing_file_skipped():
+    """首次运行还没有登录态文件：跳过加载，不中断整个套件"""
     try:
         _restore()
         config.run.storage_state = "_no_such_state_xxx.json"
-        with pytest.raises(ConfigError, match="storage_state"):
-            _page_setup()
+        setup = _page_setup()
+        assert "storage_state" not in setup["context"]
     finally:
         _restore()

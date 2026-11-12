@@ -41,6 +41,7 @@ pytest
 
 | 配置项 | 位置 | 说明 |
 | --- | --- | --- |
+| 框架配置覆盖 | 项目根 `config.ini` | 只写要改的项，未写的沿用框架默认；如 `[run] show_browser = False` 改成无头运行 |
 | 被测系统地址 | conftest.py 的 setup_env() | 必改，填入 dev/test/prod 环境地址 |
 | 用例链接前缀 | conftest.py 的 JUSTGO_TEST_CASE_BASE_URL | 可选 |
 | 录屏开关 | pytest.ini 的 --record | 默认开；删掉该行即关闭 |

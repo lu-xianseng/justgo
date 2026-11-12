@@ -23,8 +23,12 @@ class JustGoError(Exception):
 class SoftwareNotInstallError(JustGoError):
     """软件未安装：ffmpeg、allure、playwright 等运行依赖缺失"""
 
-    def __init__(self, software_name):
-        super().__init__(f"'{software_name}' 未安装")
+    def __init__(self, software_name, hint=""):
+        """software_name 为缺失组件名；hint 为可选的补救指引（如安装命令）"""
+        msg = f"'{software_name}' 未安装"
+        if hint:
+            msg = f"{msg}：{hint}"
+        super().__init__(msg)
 
 
 class FileNotExistsError(JustGoError):
@@ -74,3 +78,28 @@ class ConfigError(JustGoError):
 
     def __init__(self, msg):
         super().__init__(msg)
+
+
+class ImageRecognitionError(JustGoError):
+    """图像识别错误：模板缺失、匹配未命中、截屏失败等"""
+
+
+class TemplateNotFoundError(ImageRecognitionError):
+    """图片文件不存在，或存在但无法解码"""
+
+    def __init__(self, raw_path, searched=None, what="可用的图片文件"):
+        self.raw_path = raw_path
+        self.searched = list(searched or [])
+        self.what = what
+        msg = f"找不到{what}：{raw_path}"
+        if self.searched:
+            msg += "\n已尝试以下路径：\n  " + "\n  ".join(self.searched)
+        super().__init__(msg)
+
+
+class MatchNotFoundError(ImageRecognitionError):
+    """重试结束后仍未在画面中找到目标图片"""
+
+
+class ScreenCaptureError(ImageRecognitionError):
+    """截屏失败：无图形界面、权限不足、后端不可用"""

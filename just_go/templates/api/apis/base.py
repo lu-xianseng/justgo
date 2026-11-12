@@ -1,5 +1,4 @@
-﻿#!/usr/bin/env python3
-# coding=utf-8
+#!/usr/bin/env python3
 """接口封装基类（apis/base.py）
 
 职责：把**业务无关**的通用能力收拢到这里，让具体接口封装只写业务。

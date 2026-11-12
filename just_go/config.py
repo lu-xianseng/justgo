@@ -1,19 +1,17 @@
-﻿"""核心工具：配置、日志、mock 数据、用例控制、环境切换。
+"""配置与环境切换。
 
 用法：
-    from just_go.core import config, logger, log, CaseControl, setup_env
+    from just_go.config import config, setup_env
 
     setup_env({"dev": "http://192.168.1.10:8080", "prod": "https://example.com"})
-    logger.info("开始执行")
+    config.run.slow_time = 1000
     base_url = config.run.base_url
 """
 import os
 
-from just_go._internal.controller import CaseControl
-from just_go._internal.logger import log, logger
 from just_go._internal.settings import config
 
-__all__ = ["config", "logger", "log", "CaseControl", "setup_env"]
+__all__ = ["config", "setup_env"]
 
 
 def setup_env(base_urls: dict, case_base_url: str = "") -> None:

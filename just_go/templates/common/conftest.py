@@ -1,12 +1,11 @@
-﻿#!/usr/bin/env python3
-# coding=utf-8
+#!/usr/bin/env python3
 """测试项目根 conftest：让 just-go 框架插件生效，并向框架注入本项目配置。
 
 按你的项目填写 setup_env() 的多环境地址即可，
 运行时用 `--env prod` 切换环境，框架自动设置被测地址。
 """
 import pytest
-from just_go.core import config, setup_env
+from just_go.config import setup_env
 
 # 多环境被测地址（按需增删）：运行 `just-go run <名称> --env prod` 切换，默认 dev
 setup_env({
@@ -16,6 +15,7 @@ setup_env({
 }, case_base_url="")  # TODO: 可选，如 https://zentao.example.com/case-view-{id}.html
 
 # 示例：慢速操作等待毫秒数 / 无头模式 / 浏览器类型 / 登录态复用
+# 需要先 `from just_go.config import config` 再打开下面任意一行
 # config.run.slow_time = 1000
 # config.run.show_browser = False
 # config.run.browser_type = "chromium"   # chromium / firefox / webkit

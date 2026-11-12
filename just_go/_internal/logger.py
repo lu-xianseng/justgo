@@ -2,6 +2,7 @@
 # coding=utf-8
 # @Time     :2025/2/28 17:02
 # @Author   :luye
+import contextvars
 import inspect
 import os
 import re
@@ -13,19 +14,39 @@ from loguru import logger as llog
 
 from just_go._internal.settings import LOG_PATH
 
+# 当前用例标识（如 "L1-正确账号登录"）。由 pytest 插件在每条用例开始/结束时设置，
+# 日志 sink 的 format 通过 {extra[case]} 把它带进每一行，便于从日志区分所属用例。
+_case_label: contextvars.ContextVar = contextvars.ContextVar(
+    "justgo_case", default=""
+)
+
+LOG_FORMAT = "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {extra[case]}- {message}"
+
+
+def set_case_label(label: str) -> None:
+    """设置当前用例标识；空串表示清除（此时日志与未启用标识时完全一致）"""
+    _case_label.set(label or "")
+
+
+def _patch_case(record) -> None:
+    """给每条日志记录注入 case 字段：有用例时形如 "[L1-正确账号登录] "，无则空串"""
+    label = _case_label.get()
+    record["extra"]["case"] = f"[{label}] " if label else ""
+
 
 class CustomLogger:
     def __init__(self, log_path=LOG_PATH):
         log_name = f"{time.strftime('%Y-%m-%d-%H-%M-%S', time.localtime())}.log"
         os.makedirs(log_path, exist_ok=True)
         llog.remove()
+        llog.configure(patcher=_patch_case)
         self.logs = []
         self.add_console_sink()
         self.add_file_sink(os.path.join(log_path, log_name))
         # 收集 sink 只在此添加一次，避免 get_logger() 重复调用导致日志重复收集
         llog.add(
             self.collect_logs,
-            format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | - {message}",
+            format=LOG_FORMAT,
         )
 
     def __call__(self, msg):
@@ -38,7 +59,7 @@ class CustomLogger:
         """
         llog.add(
             sink=lambda msg: print(msg, end="", flush=True),
-            format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | - {message}",
+            format=LOG_FORMAT,
             level="DEBUG",
         )
 
@@ -49,7 +70,7 @@ class CustomLogger:
         """
         llog.add(
             file_path,
-            format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | - {message}",
+            format=LOG_FORMAT,
             level="INFO",
             rotation="10 MB",
             retention="7 days",

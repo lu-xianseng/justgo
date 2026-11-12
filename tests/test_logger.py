@@ -2,7 +2,7 @@
 """@log 类装饰器行为测试"""
 from unittest import mock
 
-from just_go.core import log
+from just_go.log import log
 
 
 class TestLogDecorator:

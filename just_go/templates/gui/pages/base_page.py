@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-# coding=utf-8
 """页面对象基类（pages/base_page.py）
 
 职责：把**业务无关**的通用能力收拢到这里，让具体页面对象只写业务。
 
-根据用例写法选择继承的基类：
-- 同步用例（def test_xxx(page)）：继承 BasePage（继承 SyncWebUI）
-- 异步用例（async def test_xxx(page)）：继承 AsyncBasePage（继承 AsyncWebUI）
+本模块只给 pages/__init__.py 的 PageExport 使用，元素类（xxx_page_ele.py）不需要继承它：
+- 同步：PageExport 继承 BasePage（继承 SyncWebUI）
+- 异步：PageExport 继承 AsyncBasePage（继承 AsyncWebUI）
+
+元素声明从 just_go.web import：
+    from just_go.web import element
+    from just_go.web import async_element
 
 框架层提供的通用能力（同步/异步各一套）：
 - 滚动：scroll_to_bottom / scroll_to
@@ -17,7 +20,9 @@
 - 接口 mock：mock_route / unroute
 - 响应拦截：intercept_response；多标签页：all_tabs / create_new_instance
 """
-from just_go.web import AsyncWebUI, SyncWebUI
+from just_go.web import AsyncWebUI, SyncWebUI, async_element, element
+
+__all__ = ["AsyncBasePage", "BasePage", "async_element", "element"]
 
 
 class BasePage(SyncWebUI):

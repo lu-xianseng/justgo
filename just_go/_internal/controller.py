@@ -12,15 +12,21 @@ class CaseControl(type):
 
     @staticmethod
     def __check_case(dic):
-        if "base_case" in dic["__module__"]:
-            return  # 基类本身不校验方法名（open_page 等通用方法不需要包含模块名）
+        module_path = dic["__module__"]
+        # 基类本身不校验方法名（open_page 等通用方法不需要包含模块名）；
+        # 兼容模板文件名的两种写法：case_base / base_case
+        if "case_base" in module_path or "base_case" in module_path:
+            return
         # 用例文件（模块）与用例方法名校验：取模块名最后一段（即文件名，
         # 兼容 --import-mode=importlib 下模块名为完整路径的情况）匹配方法名。
-        # 只校验可调用对象（方法），类内数据属性（如 tag、data 等变量）不受约束。
-        module_name = dic["__module__"].split(".")[-1]
+        # 只校验函数（方法），类内数据属性（tag、data、settings = Settings 等）不受约束；
+        # 注意不能用 callable() 判断：类、模块、可调用对象都满足 callable，会被误判为用例方法。
+        import inspect
+
+        module_name = module_path.split(".")[-1]
         for k, v in dic.items():
             if not (
-                callable(v)
+                inspect.isfunction(v)
                 and not (
                     k.startswith("__")
                     or k.startswith("setup")

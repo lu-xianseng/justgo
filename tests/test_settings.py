@@ -3,7 +3,7 @@
 import pytest
 
 from just_go._internal.settings import ConfigWrapper
-from just_go.core import config
+from just_go.config import config
 
 
 def make_config(text: str):

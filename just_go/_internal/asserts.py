@@ -13,7 +13,13 @@ import re
 from playwright.async_api import expect as async_expect
 from playwright.sync_api import expect as sync_expect
 
+from just_go._internal.element import Element
 from just_go._internal.logger import logger
+
+
+def _to_locator(obj):
+    """Element 还原成原生 Locator，selector 字符串或 Page 原样返回"""
+    return obj.native if isinstance(obj, Element) else obj
 
 
 class AssertCommon:
@@ -71,58 +77,140 @@ class AssertCommon:
             )
         logger.info(f"正则未匹配（符合预期），pattern: {pattern}")
 
+    def assert_image(
+        self,
+        *images,
+        similarity=1.0,
+        timeout=3.0,
+        interval=0.5,
+        source=None,
+        method="ccoeff",
+        search_dirs=None,
+    ):
+        """断言屏幕上能找到目标图片，返回命中结果（可继续取坐标）。
+
+        参数：
+            images      1 个或多个模板图路径，可省略 .png/.jpg/.jpeg 后缀（相对路径基于项目根）
+            similarity  相似度阈值，默认 1.0（100%）；屏幕存在光标、悬停动画时可传 0.98
+            timeout     等待秒数，默认 3；屏幕内容加载慢时调大
+            interval    两轮检测的间隔秒数，默认 0.5
+            source      搜索画面，默认全屏；也可传 (x, y, w, h) 屏幕区域或截图文件
+            method      匹配算法：ccoeff（默认，抗亮度偏移）/ corr / sqdiff
+            search_dirs 相对路径的搜索目录，默认项目根目录
+
+        未命中抛 AssertionError，文案带尝试次数与最高相似度。
+        需要 just-go[image] 可选依赖，未安装时抛 SoftwareNotInstallError。
+        """
+        from just_go.image import wait_image
+
+        result = wait_image(
+            *images,
+            similarity=similarity,
+            timeout=timeout,
+            interval=interval,
+            source=source,
+            method=method,
+            search_dirs=search_dirs,
+        )
+        if not result:
+            raise AssertionError(
+                f"未找到图片：{' / '.join(str(i) for i in images)}，"
+                f"已尝试 {result.attempts} 次，最高相似度 {result.best_score:.4f}"
+            )
+        logger.info(f"图片匹配成功：{result.match.path} 相似度 {result.match.score:.4f}")
+        return result
+
+    def assert_not_image(
+        self,
+        *images,
+        similarity=1.0,
+        timeout=0,
+        interval=0.5,
+        source=None,
+        method="ccoeff",
+        search_dirs=None,
+    ):
+        """断言屏幕上找不到目标图片；timeout>0 时要求这段时间内一直未出现才算通过。
+
+        参数与 assert_image 相同，区别是 timeout 默认 0（只检查一次）。
+        适用于「按钮已消失」「弹窗已关闭」这类断言；要确认它「不会出现」就传 timeout。
+
+        未出现时正常返回 FindResult；仍然出现时抛 AssertionError，文案带位置与相似度。
+        """
+        from just_go.image import wait_image
+
+        result = wait_image(
+            *images,
+            similarity=similarity,
+            timeout=timeout,
+            interval=interval,
+            source=source,
+            method=method,
+            search_dirs=search_dirs,
+        )
+        if result.found:
+            raise AssertionError(
+                f"图片不应存在但找到了：{result.match.path}，"
+                f"相似度 {result.match.score:.4f}，位置 {result.match.center}"
+            )
+        logger.info(
+            f"图片未出现（符合预期）：{' / '.join(str(i) for i in images)}，"
+            f"最高相似度 {result.best_score:.4f}"
+        )
+        return result
+
 
 class SyncAssert(AssertCommon):
     """同步断言：纯数据断言 + playwright UI 断言。配合 def test_xxx(page) 使用。"""
 
     def assert_visible(self, locator, timeout=None):
         """断言元素可见"""
-        sync_expect(locator).to_be_visible(timeout=timeout)
+        sync_expect(_to_locator(locator)).to_be_visible(timeout=timeout)
         logger.info(f"元素可见: {locator}")
 
     def assert_hidden(self, locator, timeout=None):
         """断言元素隐藏"""
-        sync_expect(locator).to_be_hidden(timeout=timeout)
+        sync_expect(_to_locator(locator)).to_be_hidden(timeout=timeout)
         logger.info(f"元素隐藏: {locator}")
 
     def assert_text(self, locator, expected, timeout=None):
         """断言元素文本等于 expected"""
-        sync_expect(locator).to_have_text(expected, timeout=timeout)
+        sync_expect(_to_locator(locator)).to_have_text(expected, timeout=timeout)
         logger.info(f"元素文本等于 '{expected}': {locator}")
 
     def assert_text_contains(self, locator, substring, timeout=None):
         """断言元素文本包含 substring"""
-        sync_expect(locator).to_contain_text(substring, timeout=timeout)
+        sync_expect(_to_locator(locator)).to_contain_text(substring, timeout=timeout)
         logger.info(f"元素文本包含 '{substring}': {locator}")
 
     def assert_value(self, locator, expected, timeout=None):
         """断言输入框值等于 expected"""
-        sync_expect(locator).to_have_value(expected, timeout=timeout)
+        sync_expect(_to_locator(locator)).to_have_value(expected, timeout=timeout)
         logger.info(f"输入框值等于 '{expected}': {locator}")
 
     def assert_checked(self, locator, timeout=None):
         """断言复选框/单选框已选中"""
-        sync_expect(locator).to_be_checked(timeout=timeout)
+        sync_expect(_to_locator(locator)).to_be_checked(timeout=timeout)
         logger.info(f"元素已选中: {locator}")
 
     def assert_not_checked(self, locator, timeout=None):
         """断言复选框/单选框未选中"""
-        sync_expect(locator).not_to_be_checked(timeout=timeout)
+        sync_expect(_to_locator(locator)).not_to_be_checked(timeout=timeout)
         logger.info(f"元素未选中: {locator}")
 
     def assert_count(self, locator, count, timeout=None):
         """断言匹配的元素数量等于 count"""
-        sync_expect(locator).to_have_count(count, timeout=timeout)
+        sync_expect(_to_locator(locator)).to_have_count(count, timeout=timeout)
         logger.info(f"元素数量等于 {count}: {locator}")
 
     def assert_enabled(self, locator, timeout=None):
         """断言元素可用"""
-        sync_expect(locator).to_be_enabled(timeout=timeout)
+        sync_expect(_to_locator(locator)).to_be_enabled(timeout=timeout)
         logger.info(f"元素可用: {locator}")
 
     def assert_disabled(self, locator, timeout=None):
         """断言元素禁用"""
-        sync_expect(locator).to_be_disabled(timeout=timeout)
+        sync_expect(_to_locator(locator)).to_be_disabled(timeout=timeout)
         logger.info(f"元素禁用: {locator}")
 
     def assert_url(self, page, expected, timeout=None):
@@ -141,52 +229,52 @@ class AsyncAssert(AssertCommon):
 
     async def assert_visible(self, locator, timeout=None):
         """断言元素可见"""
-        await async_expect(locator).to_be_visible(timeout=timeout)
+        await async_expect(_to_locator(locator)).to_be_visible(timeout=timeout)
         logger.info(f"元素可见: {locator}")
 
     async def assert_hidden(self, locator, timeout=None):
         """断言元素隐藏"""
-        await async_expect(locator).to_be_hidden(timeout=timeout)
+        await async_expect(_to_locator(locator)).to_be_hidden(timeout=timeout)
         logger.info(f"元素隐藏: {locator}")
 
     async def assert_text(self, locator, expected, timeout=None):
         """断言元素文本等于 expected"""
-        await async_expect(locator).to_have_text(expected, timeout=timeout)
+        await async_expect(_to_locator(locator)).to_have_text(expected, timeout=timeout)
         logger.info(f"元素文本等于 '{expected}': {locator}")
 
     async def assert_text_contains(self, locator, substring, timeout=None):
         """断言元素文本包含 substring"""
-        await async_expect(locator).to_contain_text(substring, timeout=timeout)
+        await async_expect(_to_locator(locator)).to_contain_text(substring, timeout=timeout)
         logger.info(f"元素文本包含 '{substring}': {locator}")
 
     async def assert_value(self, locator, expected, timeout=None):
         """断言输入框值等于 expected"""
-        await async_expect(locator).to_have_value(expected, timeout=timeout)
+        await async_expect(_to_locator(locator)).to_have_value(expected, timeout=timeout)
         logger.info(f"输入框值等于 '{expected}': {locator}")
 
     async def assert_checked(self, locator, timeout=None):
         """断言复选框/单选框已选中"""
-        await async_expect(locator).to_be_checked(timeout=timeout)
+        await async_expect(_to_locator(locator)).to_be_checked(timeout=timeout)
         logger.info(f"元素已选中: {locator}")
 
     async def assert_not_checked(self, locator, timeout=None):
         """断言复选框/单选框未选中"""
-        await async_expect(locator).not_to_be_checked(timeout=timeout)
+        await async_expect(_to_locator(locator)).not_to_be_checked(timeout=timeout)
         logger.info(f"元素未选中: {locator}")
 
     async def assert_count(self, locator, count, timeout=None):
         """断言匹配的元素数量等于 count"""
-        await async_expect(locator).to_have_count(count, timeout=timeout)
+        await async_expect(_to_locator(locator)).to_have_count(count, timeout=timeout)
         logger.info(f"元素数量等于 {count}: {locator}")
 
     async def assert_enabled(self, locator, timeout=None):
         """断言元素可用"""
-        await async_expect(locator).to_be_enabled(timeout=timeout)
+        await async_expect(_to_locator(locator)).to_be_enabled(timeout=timeout)
         logger.info(f"元素可用: {locator}")
 
     async def assert_disabled(self, locator, timeout=None):
         """断言元素禁用"""
-        await async_expect(locator).to_be_disabled(timeout=timeout)
+        await async_expect(_to_locator(locator)).to_be_disabled(timeout=timeout)
         logger.info(f"元素禁用: {locator}")
 
     async def assert_url(self, page, expected, timeout=None):

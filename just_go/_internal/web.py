@@ -34,7 +34,7 @@ class SyncWebUI:
     """同步页面对象基类，配合 def test_xxx(page) 使用。"""
 
     def __init__(self, page: Page, only_keep_one: bool = False):
-        self.page = page
+        self.page: Page = page
         pages = self.page.context.pages
         if only_keep_one:
             for p in pages:
@@ -149,7 +149,7 @@ class AsyncWebUI:
     def __init__(self, page: AsyncPage):
         """构造函数只保存 page 引用（__init__ 不能是 async）。
         若需关闭多余 tab，请在构造后调用 await close_other_tabs()。"""
-        self.page = page
+        self.page: AsyncPage = page
 
     async def close_other_tabs(self):
         """关闭除当前页外的其他标签页"""

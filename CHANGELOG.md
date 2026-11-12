@@ -3,6 +3,37 @@
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 版本号递增规则：修复 `x.y.patch+1`，新功能 `x.minor+1`，不兼容变更 `major+1`。
 
+## [0.3.0] - 2026-11-12
+
+### 新增
+- **属性式元素声明**：`element(selector, 描述, sensitive)` / `async_element()` 声明页面元素，访问后直接调 Playwright 动作，自动记日志与 Allure 步骤；`Element` / `AsyncElement` 从 `just_go.web` 导出，`.native` 取原生 Locator，链式定位（`first` / `nth` / `filter` / `get_by_*`）保持包装
+- **屏幕找图能力**：合入 `image_recognition` 到 `just_go/_internal/image/`（模板匹配、截图、鼠标动作），对外门面 `just_go.image`
+  （`find_image` / `wait_image` / `grab` / `screen_size` / `IMAGE_PATH`）；断言新增 `assert_image` / `assert_not_image`
+- **图像识别可选依赖**：`just-go[image]`（numpy / opencv-python-headless / pillow / mss），不装不影响框架导入与运行（门面按需惰性取实现）
+- **项目级配置覆盖**：`<项目根>/config.ini` 叠加框架默认配置，只写要改的项；`just-go init` 生成该项目级模板
+- **日志用例标识**：每条用例的日志行带 `[用例标识]` 前缀（loguru patcher + contextvars），未设置时格式与原来一致
+- **图像异常体系**：`ImageRecognitionError` 为域根共 15 类并入 `just_go/_internal/errors.py`，`just_go/errors.py` 对外导出 13 个
+- **CLI**：`just-go init` 在机器无 pipenv 时提示跳过虚拟环境创建，不再抛 `TypeError`
+
+### 变更（不兼容）
+- **模块拆分**：删除 `just_go/core.py`，拆为 `just_go/config.py`（`config` / `setup_env`）、`just_go/log.py`（`log` / `logger`）、`just_go/case.py`（`CaseControl`）；模板、文档与示例 import 全部同步迁移
+- **PO 模板结构**：元素类（`xxx_page_ele.py`）不再继承 `BasePage`，只做 `element` 声明；页面类在 `__init__` 里绑定 `self.page`；断言独立到 `pages/asserts/asserts.py` 的 `Asserts`，`PageExport` 只继承 `BasePage`，通过 `__getattr__` 把 `assert_` 前缀转发给 `Asserts`，用例写法（`page.assert_visible(...)`）不变
+- **`IMAGE_PATH` 语义**：直接取测试项目根 `ROOTDIR`，模板图目录由用户自行拼接；删除 `config.framework.image_path` 配置项，不带目录的 `find_image("btn")` 现在找 `<项目根>/btn.png`
+- 模板文件统一去掉 `# coding=utf-8` 声明、清理 BOM，并补 `pages/asserts/` 的 package-data
+
+### 修复
+- **登录态复用从未生效**：`launch_persistent_context()` 不接受 `storage_state` 参数，改为 `launch()` + `browser.new_context()` 两段式；`_page_setup()` 拆为 `launch` / `context` 两组参数，去掉临时 `user_data_dir`
+- **首次运行死锁**：`storage_state` 文件由登录用例自身产出，启动时校验存在会永久卡住首次运行；改为存在才加载、缺失跳过且仅提示一次
+- **Allure「行为」空分组**：`epic` / `feature` / `story` 仅在 CSV 对应列有值时才添加，避免出现无 value 的空分组
+- **`CaseControl` 误判**：兼容 `case_base` / `base_case` 两种基类文件名；只校验函数（`inspect.isfunction`），`settings` / `data` 等类属性不再被当成用例方法
+- **录屏 ffmpeg 定位**：`FFMPEG_PATH` 按 `config.framework.ffmpeg_path` → PATH → `~/.just-go/ffmpeg` 多级解析，一次安装供所有项目与虚拟环境复用
+- **运行时依赖声明**：`pyproject.toml` 补齐 `loguru`、`allure-python-commons`，避免干净环境安装后导入报 `ModuleNotFoundError`
+
+### 测试
+- 全量 140 用例通过、ruff 通过（新增 `tests/test_element.py` 及 image 相关用例）
+- 实际项目验证：登录用例通过，`state.json` 复用生效（无登录动作、无缺失告警）
+- 生成骨架编译与导入通过；wheel 内含 `templates/gui/pages/asserts/asserts.py`
+
 ## [0.2.0] - 2026-10-22
 
 ### 新增

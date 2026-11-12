@@ -20,12 +20,15 @@ run 内部机制：
     4. 以测试项目根为工作目录调用 `python -m pytest -p just_go._internal.plugin <参数>`。
 """
 import argparse
+import glob
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
+import zipfile
 
 FRAMEWORK_ROOT = os.path.dirname(os.path.abspath(__file__))
 
@@ -130,7 +133,7 @@ def cmd_run(args) -> int:
             "-p",
             "no:playwright",
         ] + args.pytest_args
-        print(f"使用项目虚拟环境执行：{venv}")
+        print(f"使用项目虚拟环境：{os.path.basename(venv)}")
     else:
         cmd = [
             sys.executable,
@@ -143,7 +146,6 @@ def cmd_run(args) -> int:
         ] + args.pytest_args
 
     print(f"执行测试项目：{project_root}")
-    print(f"命令：{' '.join(cmd)}")
     result = subprocess.run(cmd, cwd=project_root, env=env)
     return result.returncode
 
@@ -315,51 +317,82 @@ def _install_allure(version: str = None) -> int:
     return 0
 
 
-def _install_ffmpeg() -> int:
-    """检查/安装系统 ffmpeg（桌面录屏必需）"""
-    print("==> 检查系统 桌面录屏 插件）")
-    exe = shutil.which("ffmpeg")
-    if exe:
-        print(f"  [OK] ffmpeg：{exe}")
+# ffmpeg 共享安装位置：一次下载，所有测试项目与虚拟环境复用同一份二进制
+FFMPEG_INSTALL_DIR = os.path.join(os.path.expanduser("~"), ".just-go", "ffmpeg")
+
+
+def _ffmpeg_target() -> str:
+    """共享目录中的 ffmpeg 可执行文件路径"""
+    exe_name = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+    return os.path.join(FFMPEG_INSTALL_DIR, exe_name)
+
+
+def _install_ffmpeg(version: str = None) -> int:
+    """安装桌面录屏用的 ffmpeg 到用户目录 ~/.just-go/ffmpeg（不依赖 winget/apt）
+
+    二进制来源为 PyPI 的 imageio-ffmpeg wheel（内含已锁定版本的 ffmpeg），
+    取出的可执行文件落在共享目录，由 settings 的 ffmpeg_path 自动发现；
+    任何项目虚拟环境都不需要安装额外 Python 包，也不受 PATH 刷新影响。
+    """
+    print("==> 检查录屏编码器（ffmpeg）")
+    target = _ffmpeg_target()
+    if os.path.exists(target):
+        print(f"  [OK] ffmpeg：{target}")
         return 0
-    winget = shutil.which("winget")
-    if winget:
+
+    system = shutil.which("ffmpeg")
+    if system:
+        print(f"  [OK] 系统 ffmpeg：{system}")
+        return 0
+
+    pkg = f"imageio-ffmpeg=={version}" if version else "imageio-ffmpeg"
+    print(f"  安装 ffmpeg（{pkg}，约 100 MB）")
+    tmp = tempfile.mkdtemp(prefix="justgo_ffmpeg_")
+    try:
         cmd = [
-            "winget", "install", "--id", "Gyan.FFmpeg", "-e",
-            "--accept-source-agreements", "--accept-package-agreements",
+            sys.executable, "-m", "pip", "download", pkg,
+            "--no-deps", "--only-binary=:all:", "-d", tmp,
         ]
-        print("  未检测到 ffmpeg，尝试安装：")
-        print(f"    {' '.join(cmd)}")
         rc = subprocess.call(cmd)
-        if rc == 0:
-            exe = shutil.which("ffmpeg")
-            if not exe:
-                print("  安装完成但当前终端尚未刷新 PATH，请新开终端后重新运行本命令")
+        if rc != 0:
+            print(f"  [失败] 下载未完成（退出码 {rc}），可手动下载 ffmpeg 解压到：")
+            print(f"    {FFMPEG_INSTALL_DIR}")
+            print("    要求可执行文件位于 ~/.just-go/ffmpeg/ffmpeg(.exe)")
+            return 1
+
+        wheels = glob.glob(os.path.join(tmp, "imageio_ffmpeg-*.whl"))
+        if not wheels:
+            print("  [失败] 未找到下载的 wheel")
+            return 1
+        with zipfile.ZipFile(wheels[0]) as zf:
+            members = [
+                n
+                for n in zf.namelist()
+                if "/binaries/ffmpeg-" in n and not n.endswith((".sha256", ".txt", ".md"))
+            ]
+            if not members:
+                print("  [失败] wheel 内未找到 ffmpeg 二进制")
                 return 1
-            print(f"  [OK] ffmpeg：{exe}")
-            return 0
-        print(f"  安装未完成（退出码 {rc}），可稍后重试或手动安装：")
-        print("    下载 https://www.gyan.dev/ffmpeg/builds/ 的 release 版 zip，解压后把 bin 目录加入 PATH")
+            # 单个 wheel 只包含本平台二进制，取体积最大的那一项
+            member = max(members, key=lambda n: zf.getinfo(n).file_size)
+            os.makedirs(FFMPEG_INSTALL_DIR, exist_ok=True)
+            with zf.open(member) as src, open(target, "wb") as dst:
+                shutil.copyfileobj(src, dst)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    if not os.path.exists(target):
+        print("  [失败] 二进制未写入目标路径")
         return 1
-    # Linux 默认包管理工具为 apt：自动安装 ffmpeg
-    if sys.platform.startswith("linux") and shutil.which("apt-get"):
-        cmd = ["apt-get", "install", "-y", "ffmpeg"]
-        print("  未检测到 ffmpeg，尝试 apt 安装：")
-        print(f"    {' '.join(cmd)}（无权限时请手动加 sudo 执行）")
-        rc = subprocess.call(cmd)
-        if rc == 0:
-            exe = shutil.which("ffmpeg")
-            if not exe:
-                print("  安装完成但当前终端尚未刷新 PATH，请新开终端后重新运行本命令")
-                return 1
-            print(f"  [OK] ffmpeg：{exe}")
-            return 0
-        print("  apt 安装未完成（可能缺少权限），请手动执行：")
-        print("    sudo apt-get install -y ffmpeg")
+    if os.name != "nt":
+        os.chmod(target, 0o755)
+
+    r = subprocess.run([target, "-version"], capture_output=True, text=True)
+    if r.returncode != 0:
+        print(f"  [失败] 二进制无法执行：{r.stderr.strip()}")
         return 1
-    print("  未检测到 ffmpeg 且系统无 winget/apt，请手动安装：")
-    print("    下载 https://www.gyan.dev/ffmpeg/builds/ 的 release 版 zip，解压后把 bin 目录加入 PATH")
-    return 1
+    print(f"  [OK] ffmpeg：{target}")
+    return 0
 
 
 def _get_version() -> str:
@@ -401,11 +434,11 @@ def cmd_install(args) -> int:
         "all": [
             ("playwright", _install_playwright),
             ("allure", lambda: _install_allure(version)),
-            ("ffmpeg", _install_ffmpeg),
+            ("ffmpeg", lambda: _install_ffmpeg(version)),
         ],
         "playwright": [("playwright", _install_playwright)],
         "allure": [("allure", lambda: _install_allure(version))],
-        "ffmpeg": [("ffmpeg", _install_ffmpeg)],
+        "ffmpeg": [("ffmpeg", lambda: _install_ffmpeg(version))],
     }
     for name, fn in steps[comp]:
         print(f"\n---------- 组件：{name} ----------")
@@ -442,6 +475,7 @@ def _build_templates(mode: str) -> tuple:
         ".gitignore": _load_template(os.path.join("common", ".gitignore")),
         "README.md": _load_template(os.path.join("common", "README.md")),
         "Pipfile": _load_template(os.path.join("common", "Pipfile")),
+        "config.ini": _load_template(os.path.join("common", "config.ini")),
     }
     sections = ""
     if mode in ("gui", "all"):
@@ -456,8 +490,14 @@ def _build_templates(mode: str) -> tuple:
                 "pages/base_page.py": _load_template(
                     os.path.join("gui", "pages", "base_page.py")
                 ),
-                "pages/login_page.py": _load_template(
-                    os.path.join("gui", "pages", "login_page.py")
+                "pages/asserts/asserts.py": _load_template(
+                    os.path.join("gui", "pages", "asserts", "asserts.py")
+                ),
+                "pages/login_page/login_page_ele.py": _load_template(
+                    os.path.join("gui", "pages", "login_page", "login_page_ele.py")
+                ),
+                "pages/login_page/login_page.py": _load_template(
+                    os.path.join("gui", "pages", "login_page", "login_page.py")
                 ),
                 "tag/login.csv": _load_template(
                     os.path.join("gui", "tag", "login.csv")
@@ -528,12 +568,15 @@ def cmd_init(args) -> int:
 
     print("\n---------- 创建项目虚拟环境 ----------")
     pipenv = shutil.which("pipenv")
-    rc = subprocess.call([pipenv, "install", "--skip-lock"], cwd=target)
-    if rc != 0:
-        print(f"虚拟环境创建失败（退出码 {rc}），可稍后手动执行：")
-        print(f"  cd {target}; pipenv install")
+    if not pipenv:
+        print("未找到 pipenv，跳过虚拟环境创建（安装 pipenv 后可手动执行 pipenv install）。")
     else:
-        print("虚拟环境创建完成。")
+        rc = subprocess.call([pipenv, "install", "--skip-lock"], cwd=target)
+        if rc != 0:
+            print(f"虚拟环境创建失败（退出码 {rc}），可稍后手动执行：")
+            print(f"  cd {target}; pipenv install")
+        else:
+            print("虚拟环境创建完成。")
 
     print("\n下一步：")
     print(f"  1. 编辑 {os.path.join(target, 'conftest.py')} 里的 setup_env() 地址为被测系统实际地址")

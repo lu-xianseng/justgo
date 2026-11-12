@@ -86,18 +86,22 @@ class ConfigWrapper:
         return self._sections.get(section_name)
 
 
-config_parser = ConfigParser()
-config_path = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "configs", "config.ini"
-)
-config_parser.read(filenames=config_path, encoding="utf-8")
-config = ConfigWrapper(config_parser)
-
-# 框架根目录：just_go 包所在项目的上级（相对路径形式的框架配置基于此解析）
+# 框架根目录：just_go 包所在项目的上级（工具类配置的相对路径基于此解析）
 FRAMEWORK_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # 测试项目根目录：运行时通过 CLI 指定（环境变量 JUSTGO_PROJECT_ROOT 优先，否则取当前工作目录）
 ROOTDIR = os.environ.get("JUSTGO_PROJECT_ROOT") or os.getcwd()
+
+config_parser = ConfigParser()
+config_path = os.path.join(FRAMEWORK_ROOT, "configs", "config.ini")
+# 先读框架默认配置，再用测试项目根下的 config.ini 叠加（后读的覆盖同名项）。
+# 用户装的是 site-packages 里的框架，改不了也不该改框架自带配置，
+# 项目差异一律写到 <项目根>/config.ini，只写要改的项，其余沿用框架默认。
+config_parser.read(filenames=config_path, encoding="utf-8")
+project_config_path = os.path.join(ROOTDIR, "config.ini")
+if os.path.isfile(project_config_path):
+    config_parser.read(filenames=project_config_path, encoding="utf-8")
+config = ConfigWrapper(config_parser)
 
 # 产物输出根目录：默认跟随测试项目根；发布/CI 场景可通过 JUSTGO_OUTPUT_ROOT 重定向，
 # 指定时按项目名分子目录输出（logs/reports/cache），多个项目互不串扰
@@ -162,3 +166,42 @@ def _version_key(path: str) -> tuple:
 
 
 ALLURE_PATH = _resolve_allure_path()
+
+
+# ffmpeg 工具解析优先级（桌面录屏）：
+# 1) config.framework.ffmpeg_path 为绝对路径 → 直接使用；
+# 2) 为相对路径 → 基于框架根解析；
+# 3) 留空 → 自动查找：PATH 上的 ffmpeg 命令，其次用户目录 ~/.just-go/ffmpeg
+#    （just-go install ffmpeg 的共享安装位置，一次安装供所有项目与虚拟环境复用）。
+#    都找不到时返回空串，录屏启动时抛出带安装指引的异常。
+def _resolve_ffmpeg_path() -> str:
+    _configured = (getattr(config.framework, "ffmpeg_path", "") or "").strip()
+    if _configured:
+        candidate = (
+            _configured
+            if os.path.isabs(_configured)
+            else os.path.join(FRAMEWORK_ROOT, _configured)
+        )
+        if os.path.exists(candidate):
+            return candidate
+
+    # 自动查找：PATH 上的 ffmpeg（系统已安装时直接复用，不额外下载）
+    found = shutil.which("ffmpeg")
+    if found:
+        return found
+
+    # 共享安装位置：just-go install ffmpeg 下载的二进制，所有项目通用
+    user_ffmpeg_dir = os.path.join(os.path.expanduser("~"), ".just-go", "ffmpeg")
+    exe_name = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+    candidate = os.path.join(user_ffmpeg_dir, exe_name)
+    if os.path.exists(candidate):
+        return candidate
+    return ""
+
+
+FFMPEG_PATH = _resolve_ffmpeg_path()
+
+
+# 图像识别模板图的解析根：就是测试项目根目录。
+# 模板图放哪、用什么目录名由用户自己拼（如 "images/btn"、"assets/img/btn"），框架不预设目录。
+IMAGE_PATH = ROOTDIR

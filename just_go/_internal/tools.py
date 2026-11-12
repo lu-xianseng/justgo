@@ -5,7 +5,6 @@
 import os
 import platform
 import re
-import shutil
 import subprocess
 import time
 from importlib.metadata import version
@@ -17,6 +16,7 @@ import pytest
 from just_go._internal.errors import RecordError, SoftwareNotInstallError
 from just_go._internal.settings import (
     ALLURE_PATH,
+    FFMPEG_PATH,
     PROJECT_NAME,
     REPORT_PATH,
     TMP_REPORT_PATH,
@@ -154,9 +154,16 @@ class GenerateReport:
                     f"{test_case_base_url}/index.php?m=testcase&f=view&caseID={tags.get('用例ID')}"
                 )
             )
-        item.add_marker(allure.epic(tags.get("测试分类")))
-        item.add_marker(allure.feature(tags.get("场景分类")))
-        item.add_marker(allure.story(tags.get("场景描述")))
+        # 行为树标签：仅当 CSV 提供对应列且值非空时添加；
+        # 传空值会生成无 value 的 epic/feature/story label，报告 Behaviors 里表现为空分组
+        for label_fn, column in (
+            (allure.epic, "测试分类"),
+            (allure.feature, "场景分类"),
+            (allure.story, "场景描述"),
+        ):
+            value = tags.get(column)
+            if value:
+                item.add_marker(label_fn(value))
         for attr, value in tags.items():
             if value and attr not in ["用例ID", "跳过原因"]:
                 if value not in self._registered_markers:
@@ -168,12 +175,30 @@ class GenerateReport:
 generate_report = GenerateReport()
 
 
+# 录屏输出编码参数：mp4/webm 两套只在这里描述一次，命令由 _build_cmd 单次拼装
+_OUTPUT_PROFILES = {
+    "mp4": {
+        "vcodec": ["libx264", "-crf", "23", "-b:v", "200k"],
+        "acodec": ["aac", "-b:a", "128k"],
+        # 把 moov 前置到文件头，allure 报告内嵌播放时无需下完整个文件
+        "extra": ["-movflags", "+faststart"],
+    },
+    "webm": {
+        "vcodec": ["libvpx", "-crf", "23", "-b:v", "200k"],
+        "acodec": ["libvorbis"],
+        "extra": [],
+    },
+}
+
+
 class Record:
     """
-    录屏管理器：统一调用系统 ffmpeg 抓取桌面，产出 mp4/webm。
+    录屏管理器：调用 ffmpeg 抓取桌面，产出 mp4/webm。
     - Windows：gdigrab 抓取整个桌面
     - Linux：x11grab 抓取 X11 显示服务器（默认 :0，可用 DISPLAY 环境变量覆盖）
-    需要系统已安装 ffmpeg（`just-go install ffmpeg` 自动安装或手动加入 PATH）。
+
+    ffmpeg 由 settings.FFMPEG_PATH 解析（配置 ffmpeg_path → PATH → ~/.just-go/ffmpeg），
+    项目虚拟环境无需安装录屏相关 Python 包；缺失时运行 `just-go install ffmpeg` 装一次即可。
     """
 
     def __init__(self, framerate=10, source="desktop", out_type="mp4"):
@@ -183,8 +208,7 @@ class Record:
         self.__out_type = out_type
         self.__framerate = framerate
         self.__source = source
-        self.__base_cmd = []
-        self.__cmd = ""
+        self.__cmd: list = []
         self.__process: Optional[subprocess.Popen] = None
         self.__out_file = None
         self.__recording = False
@@ -194,61 +218,39 @@ class Record:
         """allure 附件类型：ffmpeg 产出 mp4/webm"""
         return allure.attachment_type.MP4 if self.__out_type == "mp4" else allure.attachment_type.WEBM
 
-    def _ensure_ffmpeg(self):
-        """确认 ffmpeg 可用并构造基础命令"""
-        if self.__exe:
-            return
-        self.__exe = shutil.which("ffmpeg")
-        if not self.__exe:
-            raise SoftwareNotInstallError("ffmpeg")
-        # 按平台选择抓屏后端：Windows 用 gdigrab（抓整个桌面），Linux 用 x11grab（X11 显示）
+    def _capture_args(self):
+        """按平台选择抓屏后端参数：Windows gdigrab 抓整桌面，Linux x11grab 抓 X11 显示"""
         if os.name == "nt":
-            input_args = [
+            return [
                 "-f", "gdigrab",
                 "-framerate", f"{self.__framerate}",
                 "-i", f"{self.__source}",
             ]
-        else:
-            display = os.environ.get("DISPLAY") or ":0"
-            input_args = [
-                "-f", "x11grab",
-                "-framerate", f"{self.__framerate}",
-                "-i", display,
-            ]
-        if self.__out_type == "mp4":
-            self.__base_cmd = [
-                self.__exe,
-                "-loglevel", "error",
-                *input_args,
-                "-vf",
-                "format=yuv420p",
-                "-c:v",
-                "libx264",
-                "-crf",
-                "23",
-                "-b:v",
-                "200k",
-                "-c:a",
-                "aac",
-                "-b:a",
-                "128k",
-            ]
-        if self.__out_type == "webm":
-            self.__base_cmd = [
-                self.__exe,
-                "-loglevel", "error",
-                *input_args,
-                "-vf",
-                "format=yuv420p",
-                "-c:v",
-                "libvpx",
-                "-crf",
-                "23",
-                "-b:v",
-                "200k",
-                "-c:a",
-                "libvorbis",
-            ]
+        display = os.environ.get("DISPLAY") or ":0"
+        return ["-f", "x11grab", "-framerate", f"{self.__framerate}", "-i", display]
+
+    def _build_cmd(self, out_file):
+        """拼装完整 ffmpeg 命令；-y 用于覆盖同名文件（缺它时会停在覆盖确认并占用 stdin）"""
+        profile = _OUTPUT_PROFILES[self.__out_type]
+        return [
+            self.__exe,
+            "-loglevel", "error",
+            "-y",
+            *self._capture_args(),
+            "-vf", "format=yuv420p",
+            "-c:v", *profile["vcodec"],
+            "-c:a", *profile["acodec"],
+            *profile["extra"],
+            out_file,
+        ]
+
+    def _ensure_ffmpeg(self):
+        """确认 ffmpeg 可用（配置 → PATH → ~/.just-go/ffmpeg 共享目录）"""
+        if self.__exe:
+            return
+        if not FFMPEG_PATH:
+            raise SoftwareNotInstallError("ffmpeg", "运行 `just-go install ffmpeg` 安装")
+        self.__exe = FFMPEG_PATH
 
     @property
     def __generate_name(self):
@@ -259,7 +261,7 @@ class Record:
         if not self.__recording:
             self._ensure_ffmpeg()
             self.__out_file = os.path.join(path, self.__generate_name)
-            self.__cmd = self.__base_cmd + [self.__out_file]
+            self.__cmd = self._build_cmd(self.__out_file)
             self.__process = subprocess.Popen(
                 self.__cmd,
                 stdin=subprocess.PIPE,
@@ -268,8 +270,10 @@ class Record:
                 text=True,
             )
             if self.__process.poll() is not None:
-                stderr = self.__process.stderr.read()
-                raise RecordError(f"录屏启动失败: {stderr}")
+                # ffmpeg 的 stderr 可能很长，只保留最后一条非空行作为失败原因
+                stderr = self.__process.stderr.read() or ""
+                lines = [ln for ln in stderr.splitlines() if ln.strip()]
+                raise RecordError(f"录屏启动失败: {lines[-1] if lines else 'ffmpeg 无输出'}")
             time.sleep(0.1)
             self.__recording = True
 

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# coding=utf-8
 """API 登录用例（cases/api/test_login_1.py）
 
 约定：

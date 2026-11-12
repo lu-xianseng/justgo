@@ -24,17 +24,38 @@ import pytest
 from _pytest.python import Function
 
 from just_go._internal.errors import ConfigError
-from just_go._internal.logger import custom_logger, logger
+from just_go._internal.logger import custom_logger, logger, set_case_label
 from just_go._internal.parse_tag import ParseTag  # 显式导入，确保使用 tag/ 目录限定的新版 ParseTag
 from just_go._internal.settings import ROOTDIR, TEMP_PATH, TMP_REPORT_PATH, config
 from just_go._internal.tools import generate_report, record
 
 parse_tag = ParseTag()
 enable_record = False
+# storage_state 缺失只在首次提示一次，避免每个用例启动浏览器都刷一遍警告
+_storage_state_missing_warned = False
 
 
 def pytest_runtest_logstart(nodeid, location):
     print("\n")
+
+
+def pytest_runtest_setup(item):
+    """用例 setup（含 fixture 启动）前写入用例标识并打印用例标题
+
+    日志每行前缀为用例ID（非 tag 模式的用例退回方法名），标题单独打印一行，
+    这样从日志开头就能看出当前跑的是哪条用例，步骤日志也不必重复长标题。
+    """
+    test_id = parse_tag.get_test_case_id(item)
+    set_case_label(test_id or item.name)
+    doc = (item.obj.__doc__ or "").strip().splitlines()
+    logger.info(f"用例标题：{doc[0].strip() if doc else '未命名用例'}")
+
+
+@pytest.hookimpl(tryfirst=True, hookwrapper=True)
+def pytest_runtest_teardown(item, nextitem):
+    """fixture 清理（含关闭浏览器、停录屏）也带本用例标识，清理完再清除"""
+    yield
+    set_case_label("")
 
 
 def pytest_sessionstart(session):
@@ -153,10 +174,6 @@ def pytest_configure(config):
     generate_report.single_file = config.getoption("--report-single-mode") != "no"
 
 
-def pytest_runtest_call(item):
-    logger.info(item.obj.__doc__ or "未命名用例")
-
-
 @pytest.hookimpl(tryfirst=True)
 def pytest_pyfunc_call(pyfuncitem):
     """支持 async def 测试用例：在绑定的事件循环中执行协程。
@@ -240,13 +257,13 @@ def pytest_runtest_makereport(item, call):
 
 
 def _page_setup() -> dict:
-    """构造浏览器启动参数（同步/异步共用）
+    """构造浏览器启动与上下文参数（同步/异步共用）
 
     - browser_type：config.run.browser_type 指定 chromium/firefox/webkit；
-    - storage_state：config.run.storage_state 指定登录态文件（相对路径基于项目根），
-      用于跨用例复用登录态（留空则每次使用全新临时 profile）。
+    - launch：浏览器进程参数（args / headless / slow_mo / 沙箱 / 可执行文件路径）；
+    - context：上下文参数（视口 / CSP / 证书 / 登录态）。storage_state 只对
+      new_context() 生效，launch_persistent_context() 不接受该参数。
     """
-    import tempfile
 
     browser_type = (config.run.browser_type or "chromium").strip().lower()
     if browser_type not in ("chromium", "firefox", "webkit"):
@@ -254,21 +271,24 @@ def _page_setup() -> dict:
             f"不支持的浏览器类型: {browser_type}（仅支持 chromium/firefox/webkit）"
         )
 
-    temp_dir = tempfile.mkdtemp(prefix="playwright_temp_")
-    setup = {
+    launch_setup = {
         "args": [
-            "--disable-blink-features=AutomationControlled",
             "--start-maximized",
         ],
+        # Playwright 默认 chromiumSandbox=False 会自动追加 --no-sandbox，
+        # 浏览器顶部会出现“不受支持的命令行标记”横幅；显式开启沙箱即可消除。
+        "chromium_sandbox": True,
         "headless": not config.run.show_browser,
         "slow_mo": int(config.run.slow_time),
+    }
+    if config.framework.browser_path:
+        launch_setup["executable_path"] = config.framework.browser_path
+
+    context_setup = {
         "bypass_csp": True,
         "ignore_https_errors": True,
         "no_viewport": True,
-        "user_data_dir": temp_dir,
     }
-    if config.framework.browser_path:
-        setup["executable_path"] = config.framework.browser_path
 
     storage_state = (config.run.storage_state or "").strip()
     if storage_state:
@@ -277,32 +297,124 @@ def _page_setup() -> dict:
             if os.path.isabs(storage_state)
             else os.path.join(ROOTDIR, storage_state)
         )
-        if not os.path.exists(state_path):
-            raise ConfigError(f"storage_state 文件不存在: {state_path}")
-        setup["storage_state"] = state_path
+        # 首次运行时登录态文件还没生成（要等登录用例保存后才存在），
+        # 这里不能中断整个套件：跳过加载，保存后下次运行自动生效
+        if os.path.isfile(state_path):
+            context_setup["storage_state"] = state_path
+        else:
+            global _storage_state_missing_warned
+            if not _storage_state_missing_warned:
+                _storage_state_missing_warned = True
+                logger.warning(
+                    f"storage_state 文件不存在，已跳过登录态加载：{state_path}"
+                    "（首次运行属正常，登录用例保存后下次生效）"
+                )
 
-    setup["browser_type"] = browser_type
-    return setup
+    return {
+        "browser_type": browser_type,
+        "launch": launch_setup,
+        "context": context_setup,
+    }
+
+
+def _dump_running_loop() -> None:
+    """Sync API 不可用时的诊断：把运行中的事件循环和活动协程打到日志。
+
+    Playwright 同步 API 要求当前线程没有运行中的事件循环。若 pytest 环境里有
+    插件（或宿主的 sitecustomize/PYTHONPATH）提前起了 loop，报错只会指向
+    playwright，看不出 loop 从哪来，这里补上 loop 里的活动任务和栈。
+    正常环境调用无副作用，不产生任何日志。
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+
+    import sys
+    import threading
+
+    logger.error(
+        f"检测到运行中的 asyncio 事件循环（线程 {threading.current_thread().name}）："
+        f"{loop!r}"
+    )
+    logger.error(f"解释器：{sys.executable}")
+    tasks = asyncio.all_tasks(loop)
+    logger.error(f"活动协程任务数：{len(tasks)}")
+    for task in list(tasks)[:10]:
+        logger.error(f"  任务：{task!r}")
+        try:
+            frames = task.get_stack()
+        except Exception:
+            frames = []
+        for frame in frames[-3:]:
+            logger.error(
+                f"    {frame.f_code.co_filename}:{frame.f_lineno}"
+                f" in {frame.f_code.co_name}"
+            )
+
+    # 任务里出现 PlaywrightContextManager / PipeTransport，说明这个 loop 是
+    # 上一次 sync_playwright().start() 失败后没清理干净留下的，不是外部插件起的。
+    if any(
+        "PlaywrightContextManager" in repr(task) or "PipeTransport" in repr(task)
+        for task in tasks
+    ):
+        logger.error(
+            "该事件循环由 Playwright 自身启动后残留：上一次 start() 失败未清理 loop。"
+            "当前上报的是二次错误，首次失败的真实原因请加 --reruns=0 单独运行查看。"
+        )
 
 
 def _sync_page_lifecycle(page_setup: dict):
     """同步模式：playwright.sync_api 单进程驱动（原有方式）"""
-    import shutil
-
     from playwright.sync_api import sync_playwright
 
-    browser_type = page_setup.pop("browser_type")
-    driver = sync_playwright().start()
-    browser = getattr(driver, browser_type).launch_persistent_context(**page_setup)
-    _page = browser.pages[0]
-    if enable_record:
-        record.start(TEMP_PATH)
-    yield _page
-    if enable_record:
-        record.stop()
-    browser.close()
-    driver.stop()
-    shutil.rmtree(page_setup["user_data_dir"], ignore_errors=True)
+    browser_type = page_setup["browser_type"]
+    launch_kwargs = page_setup["launch"]
+    context_kwargs = page_setup["context"]
+    _dump_running_loop()
+    driver = None
+    browser = None
+    context = None
+    recording = False
+    try:
+        # rerun 会把首次失败的原因覆盖成随后的 loop 残留错误，这里先落一条完整栈，
+        # 保证 --reruns>0 时日志里仍能看到真正的失败原因。
+        driver = sync_playwright().start()
+        browser = getattr(driver, browser_type).launch(**launch_kwargs)
+        context = browser.new_context(**context_kwargs)
+        _page = context.new_page()
+        if enable_record:
+            try:
+                record.start(TEMP_PATH)
+                recording = True
+            except Exception as exc:
+                # 录屏是可选增强：缺 ffmpeg 不该让用例连 setup 都过不去
+                logger.warning(f"录屏启动失败，本次跳过录屏：{exc}")
+        yield _page
+        if recording:
+            record.stop()
+    except Exception:
+        logger.exception("Playwright 同步浏览器会话异常（首次失败的真实原因）")
+        raise
+    finally:
+        # 任何退出路径（yield 前抛异常、用例中断、正常结束）都必须关闭上下文、
+        # 浏览器与 driver，否则 start() 建的事件循环会留在 running 状态，后续用例
+        # 全部报 "Playwright Sync API inside the asyncio loop"。
+        if context is not None:
+            try:
+                context.close()
+            except Exception:
+                pass
+        if browser is not None:
+            try:
+                browser.close()
+            except Exception:
+                pass
+        if driver is not None:
+            try:
+                driver.stop()
+            except Exception:
+                pass
 
 
 def _async_page_lifecycle(request, page_setup: dict):
@@ -311,27 +423,57 @@ def _async_page_lifecycle(request, page_setup: dict):
     浏览器 driver 与用例执行共用同一事件循环（_justgo_loop），用例中 await
     page.xxx() 与 fixture 的启动/关闭在同一 loop 内完成。
     """
-    import shutil
-
     from playwright.async_api import async_playwright
 
-    browser_type = page_setup.pop("browser_type")
+    browser_type = page_setup["browser_type"]
+    launch_kwargs = page_setup["launch"]
+    context_kwargs = page_setup["context"]
     loop = asyncio.new_event_loop()
     request.node._justgo_loop = loop
-    driver = loop.run_until_complete(async_playwright().start())
-    browser = loop.run_until_complete(
-        getattr(driver, browser_type).launch_persistent_context(**page_setup)
-    )
-    _page = browser.pages[0]
-    if enable_record:
-        record.start(TEMP_PATH)
-    yield _page
-    if enable_record:
-        record.stop()
-    loop.run_until_complete(browser.close())
-    loop.run_until_complete(driver.stop())
-    loop.close()
-    shutil.rmtree(page_setup["user_data_dir"], ignore_errors=True)
+    driver = None
+    browser = None
+    context = None
+    recording = False
+    try:
+        driver = loop.run_until_complete(async_playwright().start())
+        browser = loop.run_until_complete(
+            getattr(driver, browser_type).launch(**launch_kwargs)
+        )
+        context = loop.run_until_complete(browser.new_context(**context_kwargs))
+        _page = loop.run_until_complete(context.new_page())
+        if enable_record:
+            try:
+                record.start(TEMP_PATH)
+                recording = True
+            except Exception as exc:
+                # 录屏是可选增强：缺 ffmpeg 不该让用例连 setup 都过不去
+                logger.warning(f"录屏启动失败，本次跳过录屏：{exc}")
+        yield _page
+        if recording:
+            record.stop()
+    except Exception:
+        logger.exception("Playwright 异步浏览器会话异常（首次失败的真实原因）")
+        raise
+    finally:
+        if context is not None:
+            try:
+                loop.run_until_complete(context.close())
+            except Exception:
+                pass
+        if browser is not None:
+            try:
+                loop.run_until_complete(browser.close())
+            except Exception:
+                pass
+        if driver is not None:
+            try:
+                loop.run_until_complete(driver.stop())
+            except Exception:
+                pass
+        try:
+            loop.close()
+        except Exception:
+            pass
 
 
 @pytest.fixture

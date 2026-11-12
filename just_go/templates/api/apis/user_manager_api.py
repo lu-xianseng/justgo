@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# coding=utf-8
 """用户管理接口封装（apis/user_manager_api.py）
 
 写法：一个接口一个方法，继承 BaseApi 自动获得全部 HTTP 能力。
