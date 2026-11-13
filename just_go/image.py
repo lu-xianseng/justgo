@@ -12,12 +12,12 @@
                grayscale=True, source=None, method="ccoeff",
                search_dirs=None) -> FindResult
     grab(region=None) -> numpy.ndarray          # 当前屏幕画面，BGR 三通道
-    screen_size() -> (width, height)            # 虚拟桌面尺寸，多显示器为总尺寸
+    screen_size() -> (width, height)
 
 用法：
     from just_go.image import find_image, wait_image, grab, screen_size
 
-    r = find_image("images/login_btn")          # 后缀可省略；相对路径基于项目根，目录自己拼
+    r = find_image("images/login_btn")          # 后缀可省略；相对路径基于项目根
     if r:                                       # FindResult 可直接当布尔用
         x, y = r.match.center                   # 真实屏幕坐标（已含多显示器偏移）
         print(r.match.score)                    # 相似度 0~1
@@ -38,11 +38,6 @@
     method  ccoeff（默认，抗整体亮度偏移）/ corr（纯色块更敏感）/ sqdiff（差值平方）
     similarity  1.0 表示 100%，也接受百分数写法（90 表示 90%）
 
-异常：
-    ImageRecognitionError 是图像异常的根，TemplateNotFoundError /
-    MatchNotFoundError / ScreenCaptureError 都继承它，由 just_go.errors
-    统一导出，需要捕获时从那里导入：
-        from just_go.errors import MatchNotFoundError
 
 未安装可选依赖时 import just_go.image 不会失败，
 只有真正取用其中符号时才抛带安装指引的 SoftwareNotInstallError。

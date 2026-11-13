@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import cli  # noqa: E402
+from just_go import cli  # noqa: E402
 
 
 class FakeResult:
@@ -120,3 +120,31 @@ def test_cmd_shell_existing_env_skips_install(tmp_path, monkeypatch):
     args = SimpleNamespace(target=str(proj))
     cli.cmd_shell(args)
     assert calls == [["pipenv", "shell"]]
+
+
+def test_save_registry_is_atomic(tmp_path, monkeypatch):
+    """注册表先写临时文件再替换：不残留半成品，写坏时旧文件也不受影响"""
+    monkeypatch.setattr(cli, "REGISTRY_DIR", str(tmp_path))
+    monkeypatch.setattr(cli, "REGISTRY_FILE", str(tmp_path / "projects.json"))
+    cli.save_registry({"demo": "/x"})
+    assert cli.load_registry() == {"demo": "/x"}
+    # 临时文件不残留在 ~/.just-go
+    assert [p.name for p in tmp_path.iterdir()] == ["projects.json"]
+
+
+def test_load_registry_reports_corrupted_file(tmp_path, monkeypatch, capsys):
+    """注册表 JSON 损坏时给出提示，而不是静默当成“没有注册项目”"""
+    broken = tmp_path / "projects.json"
+    broken.write_text("{oops", encoding="utf-8")
+    monkeypatch.setattr(cli, "REGISTRY_FILE", str(broken))
+    assert cli.load_registry() == {}
+    assert "注册表读取失败" in capsys.readouterr().out
+
+
+def test_cmd_init_creates_images_dir(tmp_path, monkeypatch):
+    """init 骨架要预建 images/：IMAGE_PATH 就是项目根，用户需要明确的放图位置"""
+    monkeypatch.setattr(cli.shutil, "which", lambda name: None)  # 跳过 pipenv
+    target = tmp_path / "proj"
+    assert cli.cmd_init(SimpleNamespace(target=f"{target}[gui]")) == 0
+    assert (target / "images").is_dir()
+    assert (target / "pages" / "base_page.py").is_file()

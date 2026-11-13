@@ -15,14 +15,14 @@
     from just_go.image import find_image, wait_image                          # 屏幕找图（可选依赖）
     from just_go.errors import JustGoError, RequestError                      # 异常
 """
-import os
-import shutil
 
-from just_go._internal.settings import LOG_PATH, REPORT_PATH, TEMP_PATH, TMP_REPORT_PATH
+# 这里刻意不做任何目录创建 / 清理。
+# 旧实现会在 import 时无条件 shutil.rmtree(TMP_REPORT_PATH) 并创建四个产物目录，
+# 导致 IDE 索引、`just-go --help`、以及另一个进程正在跑测试时都会删除
+# 正在使用的报告目录；产物目录只读时更会直接让 import 失败。
+# 目录改由真正使用它们的时机创建：
+#   LOG_PATH          -> CustomLogger 初始化（写日志前）
+#   TMP_REPORT_PATH   -> pytest_configure（会话开始，此时才允许清理上一轮结果）
+#   TEMP_PATH         -> 录屏启动前 / 失败截图前
+#   REPORT_PATH       -> 生成 HTML 报告前
 
-if os.path.exists(TMP_REPORT_PATH):
-    shutil.rmtree(TMP_REPORT_PATH)
-
-for folder in (LOG_PATH, TEMP_PATH, REPORT_PATH, TMP_REPORT_PATH):
-    if not os.path.exists(folder):
-        os.makedirs(folder)

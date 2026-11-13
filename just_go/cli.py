@@ -30,30 +30,53 @@ import sys
 import tempfile
 import zipfile
 
-FRAMEWORK_ROOT = os.path.dirname(os.path.abspath(__file__))
+from just_go._internal.settings import FRAMEWORK_ROOT as PACKAGE_ROOT
+
+# settings.FRAMEWORK_ROOT 是 just_go 包目录（框架自带 configs/ 就在它下面）；
+# cli 还需要两类路径：
+#   PACKAGE_ROOT  包目录 —— 模板在 <包目录>/templates
+#   FRAMEWORK_ROOT 仓库根 —— 开发态才有 pyproject.toml（发布安装后不存在）
+FRAMEWORK_ROOT = os.path.dirname(PACKAGE_ROOT)
 
 REGISTRY_DIR = os.path.join(os.path.expanduser("~"), ".just-go")
 REGISTRY_FILE = os.path.join(REGISTRY_DIR, "projects.json")
 
 
 def load_registry() -> dict:
-    """读取项目注册表"""
+    """读取项目注册表
+
+    文件损坏时给出明确提示再返回空表：旧实现静默返回 {}，用户会看到
+    “暂无已注册项目”，以为注册记录凭空消失了。
+    """
     if os.path.exists(REGISTRY_FILE):
         try:
             with open(REGISTRY_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
             if isinstance(data, dict):
                 return data
-        except (json.JSONDecodeError, OSError):
-            pass
+            print(f"警告：注册表格式异常（不是 JSON 对象），已忽略：{REGISTRY_FILE}")
+        except (json.JSONDecodeError, OSError) as exc:
+            print(f"警告：注册表读取失败（{exc}），已忽略：{REGISTRY_FILE}")
     return {}
 
 
 def save_registry(data: dict) -> None:
-    """写回项目注册表"""
+    """写回项目注册表（先写临时文件再原子替换，避免写一半崩溃留下坏 JSON）"""
     os.makedirs(REGISTRY_DIR, exist_ok=True)
-    with open(REGISTRY_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    fd, tmp_path = tempfile.mkstemp(
+        prefix="projects-", suffix=".json", dir=REGISTRY_DIR
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, REGISTRY_FILE)
+    except OSError:
+        # 替换失败时清掉临时文件，不把半成品留在 ~/.just-go
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def normalize_path(path: str) -> str:
@@ -396,24 +419,28 @@ def _install_ffmpeg(version: str = None) -> int:
 
 
 def _get_version() -> str:
-    """框架版本号：优先取已安装包元数据，源码运行（未安装 wheel）时回退读 pyproject.toml"""
+    """框架版本号：源码树优先读 pyproject.toml，安装态读已安装包元数据
+
+    顺序必须是“先 pyproject”：源码目录里执行 `just-go version` 时，若先查
+    已安装元数据，本地改了版本号却装过旧 wheel，会显示成旧版本，
+    让人误以为改动没生效（排查安装来源时特别容易踩）。
+    """
+    pyproject = os.path.join(FRAMEWORK_ROOT, "pyproject.toml")
+    if os.path.exists(pyproject):
+        try:
+            with open(pyproject, encoding="utf-8") as f:
+                m = re.search(r'^version\s*=\s*"([^"]+)"', f.read(), re.MULTILINE)
+            if m:
+                return m.group(1)
+        except OSError:
+            pass
     try:
         from importlib.metadata import PackageNotFoundError
         from importlib.metadata import version as _pkg_version
 
         return _pkg_version("just-go")
     except PackageNotFoundError:
-        pass
-    try:
-        with open(
-            os.path.join(FRAMEWORK_ROOT, "pyproject.toml"), encoding="utf-8"
-        ) as f:
-            m = re.search(r'^version\s*=\s*"([^"]+)"', f.read(), re.MULTILINE)
-        if m:
-            return m.group(1)
-    except OSError:
-        pass
-    return "unknown"
+        return "unknown"
 
 
 def cmd_version(_args) -> int:
@@ -455,7 +482,7 @@ def cmd_install(args) -> int:
 #   all -> 以上全部
 # 模板文件位于 just_go/templates/（随包打包，发布版零依赖可用），与代码分离。
 # ---------------------------------------------------------------------------
-TEMPLATE_DIR = os.path.join(FRAMEWORK_ROOT, "just_go", "templates")
+TEMPLATE_DIR = os.path.join(PACKAGE_ROOT, "templates")
 
 
 def _load_template(rel_path: str) -> str:
@@ -562,9 +589,15 @@ def cmd_init(args) -> int:
         )
         with open(path, "w", encoding="utf-8", newline="\n") as f:
             f.write(content)
+
+    # 图像识别模板图目录：IMAGE_PATH 就是项目根，图片按“项目根 + 相对路径”解析。
+    # 预建 images/ 给用户一个明确的放图位置（框架不预设目录名，只是先建好）
+    os.makedirs(os.path.join(target, "images"), exist_ok=True)
+
     print(f"已在 {target} 创建测试项目骨架（类型：{mode}）：")
     for rel in templates:
         print(f"  {os.path.join(target, rel)}")
+    print(f"  {os.path.join(target, 'images')}")
 
     print("\n---------- 创建项目虚拟环境 ----------")
     pipenv = shutil.which("pipenv")

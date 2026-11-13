@@ -2,14 +2,7 @@
 # coding=utf-8
 # @Time     :2025/7/30 13:31
 # @Author   :luye
-"""just-go 框架自定义异常体系。
-
-所有框架异常统一继承 JustGoError（继承 Exception），使用方式：
-- 精确捕获：except RecordError 等具体异常；
-- 统一捕获：except JustGoError 捕获框架所有自定义异常；
-- 兜底捕获：except Exception 不受影响（JustGoError 仍是 Exception 子类）。
-
-测试项目可在用例中抛出/捕获这些异常做自定义处理。
+"""just-go 框架自定义异常体系
 """
 
 

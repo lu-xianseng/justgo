@@ -76,3 +76,30 @@ def test_storage_state_missing_file_skipped():
         assert "storage_state" not in setup["context"]
     finally:
         _restore()
+
+
+def test_parse_slow_mo_accepts_decimal_value():
+    """配置写成 0.5（本意是秒）时按毫秒取整，而不是直接 ValueError"""
+    from just_go._internal.plugin import _parse_slow_mo
+
+    assert _parse_slow_mo("0.5") == 0
+    assert _parse_slow_mo("500") == 500
+    assert _parse_slow_mo(1000) == 1000
+
+
+def test_parse_slow_mo_invalid_value_raises_config_error():
+    from just_go._internal.plugin import _parse_slow_mo
+
+    with pytest.raises(ConfigError, match="slow_time"):
+        _parse_slow_mo("fast")
+
+
+def test_case_title_tolerates_item_without_obj():
+    """非 Function item（doctest 等）没有 obj，取标题不能抛 AttributeError"""
+    from just_go._internal.plugin import _case_title
+
+    class FakeItem:
+        obj = None
+        name = "test_x"
+
+    assert _case_title(FakeItem()) == "未命名用例"

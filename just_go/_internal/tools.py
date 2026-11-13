@@ -24,6 +24,19 @@ from just_go._internal.settings import (
 )
 
 
+def _safe_version(package: str) -> str:
+    """读取已安装包版本；未安装时返回 unknown。
+
+    报告环境信息缺一个版本不该中断收尾流程：旧实现直接 version("requests")，
+    干净环境（未装 requests）会在 sessionfinish 抛 PackageNotFoundError，
+    用例全过也会以异常收尾。
+    """
+    try:
+        return version(package)
+    except Exception:
+        return "unknown"
+
+
 class GenerateReport:
     LEVEL_MAP = {
         "L1": allure.severity_level.BLOCKER,
@@ -97,8 +110,8 @@ class GenerateReport:
             "PythonVersion": platform.python_version(),
             "Platform": platform.platform(),
             "PytestVersion": pytest.__version__,
-            "PlaywrightVersion": version("playwright"),
-            "RequestsVersion": version("requests"),
+            "PlaywrightVersion": _safe_version("playwright"),
+            "RequestsVersion": _safe_version("requests"),
         }
         # 被测系统地址属于测试项目，由测试项目通过环境变量注入，未配置时省略
         test_base_url = os.environ.get("JUSTGO_TEST_BASE_URL")
@@ -140,6 +153,11 @@ class GenerateReport:
             out = out_bytes.decode("gbk", errors="replace")
         print(f"\n\n{out}")
 
+    #: 允许注册成 pytest marker 的列：只放枚举型、值得用 `-m` 精确筛选的列。
+    #: 其余列（用例名称/步骤/预期/场景描述等自由文本）注册成 marker 只会往
+    #: pytest 配置里塞中文长句，既无法用于 -m 筛选，也会污染报告的标签。
+    MARKER_COLUMNS = ("用例级别",)
+
     def add_mark(self, item, item_config, tags):
         level = tags.get("用例级别", "").upper()
         # 用例级别缺失/非法时降级为 NORMAL，避免收集阶段 KeyError 崩溃
@@ -164,12 +182,14 @@ class GenerateReport:
             value = tags.get(column)
             if value:
                 item.add_marker(label_fn(value))
-        for attr, value in tags.items():
-            if value and attr not in ["用例ID", "跳过原因"]:
-                if value not in self._registered_markers:
-                    self._registered_markers.add(value)
-                    item_config.addinivalue_line("markers", f"{value}: {value}")
-                item.add_marker(getattr(pytest.mark, value))
+        for attr in self.MARKER_COLUMNS:
+            value = tags.get(attr)
+            if not value:
+                continue
+            if value not in self._registered_markers:
+                self._registered_markers.add(value)
+                item_config.addinivalue_line("markers", f"{value}: {value}")
+            item.add_marker(getattr(pytest.mark, value))
 
 
 generate_report = GenerateReport()
@@ -273,6 +293,16 @@ class Record:
                 # ffmpeg 的 stderr 可能很长，只保留最后一条非空行作为失败原因
                 stderr = self.__process.stderr.read() or ""
                 lines = [ln for ln in stderr.splitlines() if ln.strip()]
+                # 启动即失败：先清掉半成品状态再抛错，否则后续 teardown 会读到
+                # 已退出的进程与不存在的输出路径，把问题二次放大
+                proc = self.__process
+                self.__process = None
+                self.__out_file = None
+                for stream in (proc.stdin, proc.stdout, proc.stderr):
+                    try:
+                        stream.close()
+                    except (AttributeError, OSError):
+                        pass
                 raise RecordError(f"录屏启动失败: {lines[-1] if lines else 'ffmpeg 无输出'}")
             time.sleep(0.1)
             self.__recording = True
@@ -309,7 +339,11 @@ class Record:
         self.stop()
         temp = self.__out_file
         if temp and os.path.exists(temp):
-            os.remove(temp)
+            try:
+                os.remove(temp)
+            except OSError as exc:
+                # 文件仍被占用时删不掉，不应让 restart 整体失败
+                print(f"旧录屏文件未能删除: {exc}")
         self.start(path)
 
     @property
@@ -320,6 +354,16 @@ class Record:
         if os.path.exists(self.__out_file):
             return self.__out_file
         return None
+
+    def take_record_file(self):
+        """取出本次录屏文件并清空引用（attach 之后调用）。
+
+        Windows 上视频文件常因句柄未释放而删不掉；若只读不取走，下一条用例的
+        teardown 会读到同一个路径，把上一条的视频重复 attach 进报告。
+        """
+        path = self.record_file
+        self.__out_file = None
+        return path
 
 
 record = Record()

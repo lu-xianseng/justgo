@@ -11,6 +11,11 @@
     from just_go.web import element
     from just_go.web import async_element
 
+locator 入参统一：下面这些方法既接受选择器字符串，也接受 element() 声明的 Element 对象：
+    page.wait_visible(page.login_page.account)   # 传 Element
+    page.wait_visible("[name='username']")       # 传字符串
+归一化由 SyncWebUI._as_locator 完成，子类不用自己再写兼容层。
+
 框架层提供的通用能力（同步/异步各一套）：
 - 滚动：scroll_to_bottom / scroll_to
 - 上传：upload_file；拖拽：drag_and_drop
@@ -32,17 +37,17 @@ class BasePage(SyncWebUI):
         super().__init__(page)
 
     def wait_visible(self, locator, timeout=10_000):
-        """等待元素可见，默认 10 秒"""
-        self.page.locator(locator).wait_for(state="visible", timeout=timeout)
+        """等待元素可见，默认 10 秒。locator 可传 Element"""
+        self._as_locator(locator).wait_for(state="visible", timeout=timeout)
 
     def get_text(self, locator, strip=True):
-        """获取元素文本，默认去除首尾空白"""
-        text = self.page.locator(locator).inner_text()
+        """获取元素文本，默认去除首尾空白。locator 可传 Element"""
+        text = self._as_locator(locator).inner_text()
         return text.strip() if strip else text
 
     def is_visible(self, locator):
-        """判断元素是否可见（不抛异常）"""
-        return self.page.locator(locator).is_visible()
+        """判断元素是否可见（不抛异常）。locator 可传 Element"""
+        return self._as_locator(locator).is_visible()
 
     def switch_to_latest_tab(self):
         """切到最新打开的标签页"""
@@ -61,17 +66,17 @@ class AsyncBasePage(AsyncWebUI):
         super().__init__(page)
 
     async def wait_visible(self, locator, timeout=10_000):
-        """等待元素可见，默认 10 秒"""
-        await self.page.locator(locator).wait_for(state="visible", timeout=timeout)
+        """等待元素可见，默认 10 秒。locator 可传 AsyncElement"""
+        await self._as_locator(locator).wait_for(state="visible", timeout=timeout)
 
     async def get_text(self, locator, strip=True):
-        """获取元素文本，默认去除首尾空白"""
-        text = await self.page.locator(locator).inner_text()
+        """获取元素文本，默认去除首尾空白。locator 可传 AsyncElement"""
+        text = await self._as_locator(locator).inner_text()
         return text.strip() if strip else text
 
     async def is_visible(self, locator):
-        """判断元素是否可见（不抛异常）"""
-        return await self.page.locator(locator).is_visible()
+        """判断元素是否可见（不抛异常）。locator 可传 AsyncElement"""
+        return await self._as_locator(locator).is_visible()
 
     def switch_to_latest_tab(self):
         """切到最新打开的标签页（属性访问，同步）"""

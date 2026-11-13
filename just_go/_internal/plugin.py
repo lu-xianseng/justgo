@@ -17,6 +17,7 @@ just-go 框架的 pytest 插件入口。
 import asyncio
 import inspect
 import os
+import shutil
 import time
 
 import allure
@@ -39,6 +40,31 @@ def pytest_runtest_logstart(nodeid, location):
     print("\n")
 
 
+def _case_title(item) -> str:
+    """用例标题：docstring 首行；非 Function item（doctest 等）没有 obj 时退回占位。
+
+    旧实现直接 item.obj.__doc__，项目里一旦有非 Function 的 item 就会
+    AttributeError 把整个运行打断。
+    """
+    obj = getattr(item, "obj", None)
+    doc = (getattr(obj, "__doc__", None) or "").strip() if obj is not None else ""
+    return doc.splitlines()[0].strip() if doc else "未命名用例"
+
+
+def _parse_slow_mo(value) -> int:
+    """解析 slow_time（毫秒）。
+
+    配置写成 0.5（本意是秒）或带单位时 int() 直接 ValueError，报错却看不出
+    是哪一项；这里补一条带原始值的明确错误。
+    """
+    try:
+        return int(float(str(value).strip()))
+    except (TypeError, ValueError):
+        raise ConfigError(
+            f"config.run.slow_time 必须是数字（单位毫秒），当前值：{value!r}"
+        )
+
+
 def pytest_runtest_setup(item):
     """用例 setup（含 fixture 启动）前写入用例标识并打印用例标题
 
@@ -47,15 +73,17 @@ def pytest_runtest_setup(item):
     """
     test_id = parse_tag.get_test_case_id(item)
     set_case_label(test_id or item.name)
-    doc = (item.obj.__doc__ or "").strip().splitlines()
-    logger.info(f"用例标题：{doc[0].strip() if doc else '未命名用例'}")
+    logger.info(f"用例标题：{_case_title(item)}")
 
 
 @pytest.hookimpl(tryfirst=True, hookwrapper=True)
 def pytest_runtest_teardown(item, nextitem):
     """fixture 清理（含关闭浏览器、停录屏）也带本用例标识，清理完再清除"""
-    yield
-    set_case_label("")
+    try:
+        yield
+    finally:
+        # teardown 自身抛异常时也要清标签，否则残留到下一个用例
+        set_case_label("")
 
 
 def pytest_sessionstart(session):
@@ -73,6 +101,7 @@ def pytest_collection_modifyitems(session, config, items):
     """pytest收集用例后修改用例列表"""
     deselected = []
     skipped = []
+    missing_tag = []
 
     tag_expression = config.getoption("--tag")
     # tag 模式为可选项：项目根存在 tag/*.csv 数据（pytest_sessionstart 已加载进缓存）时启用；
@@ -101,13 +130,17 @@ def pytest_collection_modifyitems(session, config, items):
 
         csv_path = parse_tag.get_module_csv_path(item)
         if not csv_path:
-            logger.debug(f"无法获取模块CSV路径: {item.name}")
-            deselected.append(item)
+            logger.warning(f"用例[{item.name}] 没有对应的 tag CSV 文件，已跳过执行")
+            missing_tag.append(item)
             continue
 
-        tags = parse_tag.TEST_TAGS_CACHE.get(csv_path)
-        if not tags or test_id not in tags:
-            pytest.exit(f"用例[{item.name}]，缺少tag信息")
+        tags = parse_tag.TEST_TAGS_CACHE.get(csv_path) or {}
+        if test_id not in tags:
+            logger.warning(
+                f"用例[{item.name}]（ID {test_id}）在 tag CSV 中没有记录，已跳过执行"
+            )
+            missing_tag.append(item)
+            continue
 
         tag_info = tags[test_id]
         skip_reason = tag_info.get("跳过原因", "").strip()
@@ -124,8 +157,17 @@ def pytest_collection_modifyitems(session, config, items):
 
         generate_report.add_mark(item, config, tag_info)
 
+    # 缺 tag 的用例与表达式不匹配的用例同样处理：跳过执行，但不中断整个套件
+    deselected.extend(missing_tag)
+
     for item in deselected:
         items.remove(item)
+
+    if missing_tag:
+        logger.warning(
+            f"{len(missing_tag)} 条用例缺少 tag 记录，已跳过执行；"
+            "请在对应 tag/*.csv 中补齐用例ID（旧版本会在此中断整个套件）"
+        )
 
     if deselected:
         config.hook.pytest_deselected(items=deselected)
@@ -167,10 +209,23 @@ def pytest_sessionfinish(session, exitstatus):
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_configure(config):
+    # 上一轮 allure 原始结果只在这里清空：这是唯一可靠的时机。
+    # 旧实现放在 import just_go 里，导致 IDE 索引、just-go --help、以及
+    # 另一个进程正在跑测试时都会误删该目录（目录只读时还会让 import 失败）。
+    if os.path.isdir(TMP_REPORT_PATH):
+        shutil.rmtree(TMP_REPORT_PATH, ignore_errors=True)
+    os.makedirs(TMP_REPORT_PATH, exist_ok=True)
     config.option.allure_report_dir = TMP_REPORT_PATH
     if config.getoption("--record") == "yes":
         global enable_record
         enable_record = True
+        # 录屏是“整个桌面 + 单个 ffmpeg 进程”的全局资源：xdist 多个 worker 会同时
+        # 抓同一块屏、并把对方的输出文件当自己的删掉，这里明确提示而不是静默出错
+        if config.getoption("numprocesses", None) or os.environ.get("PYTEST_XDIST_WORKER"):
+            logger.warning(
+                "检测到 pytest-xdist 并行执行：录屏使用全局单例，多个 worker 会同时"
+                "录制并互相覆盖输出文件，录屏场景请保持单进程运行"
+            )
     generate_report.single_file = config.getoption("--report-single-mode") != "no"
 
 
@@ -208,7 +263,7 @@ def pytest_pyfunc_call(pyfuncitem):
 def pytest_runtest_makereport(item, call):
     outcome = yield
     test_id = parse_tag.get_test_case_id(item)
-    doc_string = item.obj.__doc__ or "未命名用例"
+    doc_string = _case_title(item)
     # 未采用 tag 模式（或用例名无 ID）时，标题直接用用例描述
     allure.dynamic.title(f"{test_id}-{doc_string}" if test_id else doc_string)
     report = outcome.get_result()
@@ -238,7 +293,8 @@ def pytest_runtest_makereport(item, call):
                 logger.error(f"无法添加附件: {e}")
 
     if report.when == "teardown" and "page" in item.funcargs:
-        video_file = record.record_file
+        # 取走而不是只读：文件删不掉时，下一条用例的 teardown 不会再 attach 同一个视频
+        video_file = record.take_record_file()
         if video_file:
             if getattr(item, "_justgo_failed", False):
                 allure.attach.file(
@@ -279,7 +335,7 @@ def _page_setup() -> dict:
         # 浏览器顶部会出现“不受支持的命令行标记”横幅；显式开启沙箱即可消除。
         "chromium_sandbox": True,
         "headless": not config.run.show_browser,
-        "slow_mo": int(config.run.slow_time),
+        "slow_mo": _parse_slow_mo(config.run.slow_time),
     }
     if config.framework.browser_path:
         launch_setup["executable_path"] = config.framework.browser_path
@@ -307,7 +363,6 @@ def _page_setup() -> dict:
                 _storage_state_missing_warned = True
                 logger.warning(
                     f"storage_state 文件不存在，已跳过登录态加载：{state_path}"
-                    "（首次运行属正常，登录用例保存后下次生效）"
                 )
 
     return {
@@ -383,6 +438,7 @@ def _sync_page_lifecycle(page_setup: dict):
         browser = getattr(driver, browser_type).launch(**launch_kwargs)
         context = browser.new_context(**context_kwargs)
         _page = context.new_page()
+        os.makedirs(TEMP_PATH, exist_ok=True)
         if enable_record:
             try:
                 record.start(TEMP_PATH)
@@ -390,16 +446,24 @@ def _sync_page_lifecycle(page_setup: dict):
             except Exception as exc:
                 # 录屏是可选增强：缺 ffmpeg 不该让用例连 setup 都过不去
                 logger.warning(f"录屏启动失败，本次跳过录屏：{exc}")
-        yield _page
-        if recording:
-            record.stop()
     except Exception:
-        logger.exception("Playwright 同步浏览器会话异常（首次失败的真实原因）")
+        # 只覆盖“启动浏览器”这一段。旧实现的 except 包住了 yield，把用例自身的
+        # 失败也记成“Playwright 同步浏览器会话异常”，日志与报告里全是误诊信息。
+        logger.exception("Playwright 同步浏览器会话启动失败")
         raise
+    try:
+        yield _page
     finally:
-        # 任何退出路径（yield 前抛异常、用例中断、正常结束）都必须关闭上下文、
-        # 浏览器与 driver，否则 start() 建的事件循环会留在 running 状态，后续用例
-        # 全部报 "Playwright Sync API inside the asyncio loop"。
+        # 用例成功/失败/中断都会走到这里：停录屏 + 关闭上下文/浏览器/driver。
+        # 旧实现把 record.stop() 放在 yield 之后，用例一抛异常整段就被跳过，
+        # 导致 ffmpeg 进程残留、录制文件不封口。
+        if recording:
+            try:
+                record.stop()
+            except Exception as exc:
+                logger.warning(f"停止录屏失败：{exc}")
+        # 任何退出路径都必须关闭资源，否则 start() 建的事件循环会留在 running
+        # 状态，后续用例全部报 "Playwright Sync API inside the asyncio loop"。
         if context is not None:
             try:
                 context.close()
@@ -441,6 +505,7 @@ def _async_page_lifecycle(request, page_setup: dict):
         )
         context = loop.run_until_complete(browser.new_context(**context_kwargs))
         _page = loop.run_until_complete(context.new_page())
+        os.makedirs(TEMP_PATH, exist_ok=True)
         if enable_record:
             try:
                 record.start(TEMP_PATH)
@@ -448,13 +513,18 @@ def _async_page_lifecycle(request, page_setup: dict):
             except Exception as exc:
                 # 录屏是可选增强：缺 ffmpeg 不该让用例连 setup 都过不去
                 logger.warning(f"录屏启动失败，本次跳过录屏：{exc}")
-        yield _page
-        if recording:
-            record.stop()
     except Exception:
-        logger.exception("Playwright 异步浏览器会话异常（首次失败的真实原因）")
+        # 同同步版：只覆盖启动阶段，用例自身失败不再被误记成 Playwright 会话异常
+        logger.exception("Playwright 异步浏览器会话启动失败")
         raise
+    try:
+        yield _page
     finally:
+        if recording:
+            try:
+                record.stop()
+            except Exception as exc:
+                logger.warning(f"停止录屏失败：{exc}")
         if context is not None:
             try:
                 loop.run_until_complete(context.close())

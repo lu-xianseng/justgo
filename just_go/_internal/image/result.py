@@ -1,4 +1,4 @@
-"""识别结果的数据结构。"""
+"""识别结果的数据结构"""
 
 from __future__ import annotations
 

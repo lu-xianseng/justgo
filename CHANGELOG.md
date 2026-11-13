@@ -3,6 +3,62 @@
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 版本号递增规则：修复 `x.y.patch+1`，新功能 `x.minor+1`，不兼容变更 `major+1`。
 
+## [0.3.1] - 2026-11-13
+
+### 新增
+- **locator 入参归一化**：`SyncWebUI` / `AsyncWebUI` 新增 `_as_locator()` / `_as_selector()`，接收 locator 的方法统一支持三种入参——选择器字符串、`element()` 声明的 `Element`、原生 `Locator`
+  - `scroll_to` / `upload_file` / `get_attribute` / `switch_to_frame` / `drag_and_drop` 五个方法同步支持；`drag_and_drop` 改走 `Locator.drag_to`
+  - `Element` 取 `.native`（绑定它自己的 page，切标签页后仍定位正确，且保留 `first` / `nth` / `filter` 的派生链）；原生 `Locator` 原样返回，不再二次 `page.locator()` 包装
+  - `switch_to_frame` 取 `Element.selector`（`frame_locator` 只接受字符串），`Element` 无选择器表达式时抛 `ValueError` 并说明原因
+- **模板 `BasePage` 同步**：`pages/base_page.py` 的 `wait_visible` / `get_text` / `is_visible`（同步、异步两套）支持传 `Element`，子类不必再自己写兼容层
+- **`AsyncElement.all`**：异步侧补齐与 `Element.all` 对齐，返回 `list[AsyncElement]`（需 `await`）
+- **`Record.take_record_file()`**：取出录屏文件并清空引用，供 attach 之后调用
+- **`just-go init` 预建 `images/` 目录**：`IMAGE_PATH` 就是项目根，给模板图一个明确的存放位置
+
+### 修复
+- **运行时依赖漏声明**：`pyproject.toml` 补齐 `requests`、`faker`。缺声明时干净环境会在 `GenerateReport.set_report_env()` 的 `version("requests")` 抛 `PackageNotFoundError`（用例全过也会在收尾崩溃），`from just_go.http import Request` / `from just_go.data import mock` 直接 `ModuleNotFoundError`
+- **`import just_go` 的破坏性副作用**：旧实现在 import 时无条件 `shutil.rmtree(TMP_REPORT_PATH)` 并创建四个产物目录，导致 IDE 索引、`just-go --help`、以及另一个进程正在跑测试时都会删除正在使用的报告目录，目录只读时还会让 import 失败。改为各目录在使用时创建，allure 结果清空移到 `pytest_configure`
+- **用例失败时录屏不停**：`record.stop()` 原先写在 fixture 的 `yield` 之后，用例抛异常就被跳过，导致 ffmpeg 进程残留、mp4 不封口。改到 `finally`，成功/失败/中断都会停录屏并关闭浏览器资源
+- **录屏文件挂错用例**：`Record.stop()` 不重置输出路径，Windows 上视频删不掉时下一条用例的 teardown 会重复 attach 上一条的视频；新增 `take_record_file()` 在 attach 后取走引用
+- **用例失败被误记为 Playwright 会话异常**：旧实现的 `except` 包住了 `yield`，任何断言失败都记成「Playwright 同步浏览器会话异常（首次失败的真实原因）」+ 完整栈。拆成「启动阶段」与「运行阶段」，启动失败单独报错
+- **`--tag` 子串匹配误判**：`L1` 会命中 `L10`，token 还会匹配场景等自由文本。ASCII 标签改为按完整标签精确比对，中文 token 保留包含匹配（`--tag 登录` 仍能命中「登录接口」）；标签值支持 `|` / `,` / `;` 分隔多标签
+- **tag CSV 缺列导致整套件退出**：`v.strip()` 不设防 `None`，CSV 少一列即 `AttributeError` 并被转成 `pytest.exit`。改为空串兜底，单个文件异常只跳过该文件并告警
+- **缺 tag 中断全量**：新增用例还没登记 tag 时会 `pytest.exit` 终止整个会话。改为跳过该用例并汇总告警
+- **用例 ID 提取过宽**：任意尾段都被当作 ID（`test_foo_bar_baz` 得到 `baz`）。改为只接受纯数字尾段
+- **每列值都注册成 pytest marker**：除用例ID/跳过原因外所有列都被 `addinivalue_line` 注册，CSV 加列会把中文长句塞进 pytest 配置。改为只注册 `用例级别`（`MARKER_COLUMNS` 白名单）
+- **日志把普通值当文件路径截断**：任何含 `/` 或 `\` 的值都取 basename，`fill("2026/11/13")` 记成 `"13"`、`evaluate("a/b")` 只剩后半段。改为只在带盘符 / 以分隔符开头 / 带常见文件扩展名时才取文件名
+- **`_unwrap_args` 不认 `AsyncElement`**：异步元素互传（`a.drag_to(b)`、`a.filter(has=b)`）会把包装对象直接交给 Playwright 报类型错误
+- **`IMAGE_PATH` 与实际解析基准不一致**：`settings.IMAGE_PATH` 是项目根，但模板图解析只认 `Path.cwd()`，IDE/CI 里 cwd ≠ 项目根时找不到图。改为先按 `IMAGE_PATH` 解析，再退回 cwd
+- **`_load_template` 抛裸 `OSError`**：模板状态读取失败不在框架异常体系内，改为 `TemplateNotFoundError`
+- **非 Function item 崩溃**：`pytest_runtest_setup` / `pytest_runtest_makereport` 直接取 `item.obj.__doc__`，项目含 doctest 等 item 时 `AttributeError`；改为安全取并退回占位标题
+- **注册表写坏即静默清空**：`save_registry` 非原子写，写一半崩溃后 `load_registry` 静默返回 `{}`，用户会以为注册记录凭空消失。改为 `mkstemp` + `os.replace` 原子替换，损坏时打印明确警告
+- **`@log` 破坏绑定语义 / 日志泄露密码**：`staticmethod` / `classmethod` 被包装成普通函数，静态方法经实例调用时会把 `self` 当第一个参数；docstring 里的 `{{password}}` 会把真实密码写进日志。改为保持原绑定类型、敏感参数打码 `***`
+- **`slow_time` 非整数配置崩溃**：配置写成 `0.5`（本意是秒）时 `int()` 直接 `ValueError` 且报错看不出是哪一项；改为 `int(float())` 并抛带原始值的 `ConfigError`
+- **`retries=-1` 得到空错误**：循环一次都不执行，最终抛 `RequestError("请求错误: None")`；改为拒绝负数与非整数
+- **源码树 `just-go version` 显示旧版本**：先查已安装元数据，本地改了版本号却装过旧 wheel 时会显示成旧版本，误判「改动没生效」；改为源码树优先读 `pyproject.toml`
+- **teardown 异常时用例标签残留**：`set_case_label("")` 在 teardown 抛异常时不执行，改为 `try/finally`
+- **xdist 并行录屏互相覆盖**：录屏是全局单例 + 整屏抓取，多 worker 会同时录制并互删文件；检测到 `--record=yes` 与并行执行时明确告警（未做 per-worker 隔离）
+- **日志取文件名不跨平台**：`Element` 记动作日志时用 `os.path.basename()` 截取文件名，POSIX（GitHub Actions）上它不把反斜杠当分隔符，Windows 盘符路径 `D:\data\logo.png` 会整串留在日志里，导致 Linux CI 的 `test_set_input_files_shows_basename` 失败；改为按最后一个分隔符切分的 `_basename()`，反斜杠与正斜杠都对
+
+### 变更（不兼容）
+- **CLI 模块位置**：`cli.py` 移入 `just_go/cli.py`，`[project.scripts]` 入口改为 `just_go.cli:main`，删除 `py-modules = ["cli"]`。此前会往 site-packages 根放一个顶层 `cli` 模块，任何项目的 `import cli` 都会命中它。**旧安装需 `pip uninstall -y just-go` 后重新安装**，否则命令仍指向旧的顶层模块
+- **`--tag` 匹配语义**：ASCII 标签由「子串包含」改为「完整标签匹配」，`--tag L1` 不再命中 `L10`
+- **缺 tag 的用例**：从「`pytest.exit` 中断整个套件」改为「跳过该用例 + 结束时汇总告警」
+- **marker 注册范围**：只有 `用例级别` 列会注册成 `pytest.mark.<级别>`，`用例名称` / `步骤` / `场景` 等自由文本列不再注册
+- **产物目录清理时机**：从 `import just_go` 移到 `pytest_configure`（会话开始），只有真正跑测试时才清理上一轮结果
+
+### 文档
+- 精简 `_internal/errors.py` 与 `_internal/image/` 各模块 docstring，去掉与实现重复的说明
+- `.gitignore` 忽略本地 `tools/` 目录
+- `settings.FRAMEWORK_ROOT` 注释更正为「just_go 包目录」（与实现一致）
+
+### 测试
+- 171 passed、ruff 通过（新增 23 条回归用例：locator 归一化 7 条、`_basename` 跨平台、`_looks_like_path` / 非路径值不截断、`AsyncElement` 参数还原与 `all`、tag 边界（`L1` vs `L10`、多标签分隔）、tag CSV 缺列、用例 ID 严格、marker 白名单、`take_record_file`、`_safe_version`、`slow_time` 解析、`_case_title`、`retries` 非法值、`@log` 的 staticmethod/classmethod/脱敏、注册表原子写与损坏提示、`init` 建 `images/`）
+- 验证 `import just_go` 不再创建/删除产物目录（预置 `cache/report` 文件在 import 后仍存在）
+- 模拟安装布局（把 `just_go` 拷到临时目录后 import）：`_build_templates("all")` 的 19 个模板全部成功加载
+- 实际项目验证：登录用例 1 passed（13.09s，仓库源码路径）
+- 未覆盖：异步 `_async_page_lifecycle` 无真实异步用例可跑，仅代码结构与单测层面检查；`image/finder.py` 两处改动无自动化测试（cv2 为可选依赖，CI 不安装）
+
 ## [0.3.0] - 2026-11-12
 
 ### 新增

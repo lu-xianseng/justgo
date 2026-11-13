@@ -55,6 +55,17 @@ class TestEvaluateExpression:
         # 子串匹配：token "登录" 命中 "登录接口"
         assert ParseTag.evaluate_expression("登录", self.tags) is True
 
+    def test_ascii_tag_requires_full_match(self):
+        """L1 不能命中 L10：ASCII 标签必须按完整标签比对"""
+        tags = {"用例ID": "1001", "用例级别": "L10", "场景": "", "跳过原因": ""}
+        assert ParseTag.evaluate_expression("L1", tags) is False
+        assert ParseTag.evaluate_expression("L10", tags) is True
+
+    def test_multi_tag_value_split(self):
+        """标签值用竖线分隔时逐段匹配"""
+        tags = {"用例ID": "1001", "用例级别": "L1|L2", "场景": "", "跳过原因": ""}
+        assert ParseTag.evaluate_expression("L1 and L2", tags) is True
+
 
 class TestModuleDir:
     """_module_dir：绝对/相对 location 都正确转成相对项目根的模块目录"""
@@ -128,7 +139,33 @@ class TestGetTestCaseId:
         assert ParseTag.get_test_case_id(FakeItem()) is None
 
 
-class TestUpdateTag:
+class TestTestCaseIdStrict:
+    def test_non_numeric_tail_returns_none(self):
+        """test_foo_bar_baz 的最后一段不是 ID，不能把 "baz" 拿去查 tag"""
+
+        class FakeItem:
+            name = "test_foo_bar_baz"
+
+        assert ParseTag.get_test_case_id(FakeItem()) is None
+
+
+class TestTagLoadingRobust:
+    """CSV 缺列 / None 值只跳过该文件，不再让整个套件 exit"""
+
+    def test_missing_column_does_not_break(self, tmp_path, monkeypatch):
+        tag_dir = tmp_path / "tag"
+        tag_dir.mkdir()
+        # 第二行少两列：DictReader 会把缺失字段给成 None
+        (tag_dir / "login.csv").write_text(
+            "用例ID,用例级别,场景,跳过原因\n1001,L1\n", encoding="utf-8"
+        )
+        monkeypatch.setattr("just_go._internal.parse_tag.ROOTDIR", str(tmp_path))
+        parser = ParseTag()
+        parser.TEST_TAGS_CACHE = {}
+        parser.load_all_test_tags(None)
+        loaded = parser.TEST_TAGS_CACHE[str(tag_dir / "login.csv")]
+        assert loaded["1001"]["用例级别"] == "L1"
+        assert loaded["1001"]["跳过原因"] == ""
     def test_create_tag_file_writes_header(self, tmp_path, monkeypatch):
 
         monkeypatch.setattr("just_go._internal.parse_tag.ROOTDIR", str(tmp_path))

@@ -4,17 +4,21 @@
 # @Author   :luye
 import csv
 import os
+import re
 from typing import Dict, List, Optional
 
-import pytest
 from _pytest.nodes import Item
 from _pytest.python import Function
 
 from just_go._internal.errors import TagError
+from just_go._internal.logger import logger
 from just_go._internal.settings import ROOTDIR
 
 # 限定 star import 只导出公共类，避免框架命名空间被辅助符号污染
 __all__ = ["ParseTag", "UpdateTag"]
+
+#: ASCII 形态的标签（L1 / smoke / p0）：按完整标签精确比对，不做子串匹配
+_ASCII_TAG = re.compile(r"[0-9a-zA-Z_.\-]+")
 
 
 class UpdateTag:
@@ -68,16 +72,19 @@ class ParseTag:
                 with open(csv_path, 'r', encoding='utf-8') as f:
                     reader = csv.DictReader(f)
                     for row in reader:
-                        # logger.debug(row)
-                        case_id = row.get('用例ID', '').strip()
+                        # CSV 少一列时 DictReader 会给该字段 None，直接 .strip() 会
+                        # AttributeError 并被外层 catch 成“整个套件退出”；这里按空串处理
+                        case_id = (row.get('用例ID') or "").strip()
                         if not case_id:
                             raise TagError("用例ID不能为空")
-                        tags[case_id] = {k: v.strip() for k, v in row.items()}
+                        tags[case_id] = {
+                            k: (v or "").strip() for k, v in row.items() if k
+                        }
                 if tags:
                     self.TEST_TAGS_CACHE[csv_path] = tags
-                    # logger.info(f"已加载CSV文件: {csv_path}, 包含 {len(tags)} 个用例标记")
             except Exception as e:
-                pytest.exit(f"错误: {str(e)}")
+                # 单个 CSV 有问题只跳过它并提示，不再让 pytest.exit 中断整套用例
+                logger.warning(f"tag CSV 加载失败，已跳过 {csv_path}：{e}")
 
     @staticmethod
     def _module_dir(item: Item) -> str:
@@ -93,14 +100,16 @@ class ParseTag:
 
     @staticmethod
     def get_test_case_id(item: Function) -> Optional[str]:
-        """从测试用例中提取ID"""
-        test_name = item.name
-        parts = test_name.split('_')
-        if len(parts) >= 3:
-            # 尝试从测试名中提取ID
-            test_id_part = parts[-1].split('[')[0]  # 处理带参数化的情况
-            return test_id_part
-        return None
+        """从测试名末尾提取用例ID（只接受纯数字）。
+
+        约定 <前缀>_<数字>：旧实现把任意最后一段都当 ID，像 test_foo_bar_baz
+        会得到 "baz" 并被当作真实用例ID 去查 tag；参数化后缀 [case2] 先剥掉。
+        """
+        parts = item.name.split('_')
+        if len(parts) < 2:
+            return None
+        test_id = parts[-1].split('[')[0].strip()
+        return test_id if test_id.isdigit() else None
 
     def get_module_csv_path(self, item: Item) -> Optional[str]:
         """获取测试用例对应的CSV标记文件路径"""
@@ -114,7 +123,9 @@ class ParseTag:
         csv_path = os.path.join(ROOTDIR, module_dir + ".csv")
         if csv_path in self.TEST_TAGS_CACHE:
             return csv_path
-        pytest.exit(f"用例[{item.name}]，缺少tag信息")
+        # 没有对应 CSV 时返回 None，由调用方跳过该用例：
+        # 旧实现在这里 pytest.exit，新增一条还没登记 tag 的用例就会中断整个套件
+        return None
 
     @staticmethod
     def evaluate_expression(expression: str, tag_info: Dict[str, str]) -> bool:
@@ -123,8 +134,32 @@ class ParseTag:
         例如: "smoke and (L1 or L2)"
         """
         expression = expression.lower()
-        tag_values = [str(v).lower() for k, v in tag_info.items()
-                      if v and k not in ['跳过原因']]
+        # 原始值用于中文 token 的包含匹配；按分隔符切开的标签集合用于 ASCII
+        # token 的精确匹配（多标签值支持 "L1|smoke"、"L1,smoke" 这类写法）
+        raw_values: List[str] = []
+        tag_values = set()
+        for key, value in tag_info.items():
+            if not value or key in ('跳过原因',):
+                continue
+            text = str(value).strip().lower()
+            if not text:
+                continue
+            raw_values.append(text)
+            for part in re.split(r"[|,，;；/\s]+", text):
+                part = part.strip()
+                if part:
+                    tag_values.add(part)
+
+        def token_match(token: str) -> bool:
+            """token 是否命中该用例的标签。
+
+            L1 / smoke / p0 这类 ASCII 标签按“完整标签”比对，避免 --tag L1
+            命中 L10（旧实现是子串包含）；中文 token 保留包含匹配，便于
+            --tag 登录 命中“登录接口”。
+            """
+            if _ASCII_TAG.fullmatch(token):
+                return token in tag_values
+            return any(token in value for value in raw_values)
 
         def evaluate(tokens):
             stack = []
@@ -164,8 +199,8 @@ class ParseTag:
                     operators.append(token)
                     i += 1
                 else:
-                    # 检查token是否在任意标签值中
-                    matched = any(token in value for value in tag_values)
+                    # 检查token是否命中标签（ASCII 标签精确、中文标签按包含）
+                    matched = token_match(token)
                     stack.append(matched)
                     i += 1
 

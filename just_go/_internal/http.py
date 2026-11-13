@@ -93,6 +93,14 @@ class Request:
             merged_headers = self.headers
         _timeout = timeout if timeout is not None else self.timeout
         _retries = self.retry_times if retries is None else retries
+        try:
+            _retries = int(_retries)
+        except (TypeError, ValueError):
+            raise ValueError(f"retries 必须是整数，收到 {retries!r}")
+        if _retries < 0:
+            # retries=-1 时 range(0) 一次都不执行，最终抛“请求错误: None”，
+            # 把真实原因完全掩盖掉，这里直接拒绝非法值
+            raise ValueError(f"retries 不能为负数，收到 {_retries}")
         last_exc = None
         for attempt in range(_retries + 1):
             try:

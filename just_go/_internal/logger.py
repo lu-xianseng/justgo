@@ -100,10 +100,32 @@ class CustomLogger:
         return llog
 
 
+#: docstring 模板里这些参数名的取值在日志中打码（避免密码/令牌进日志）
+_SENSITIVE_DOC_KEYS = (
+    "password", "passwd", "pwd", "token", "secret",
+    "cookie", "captcha", "密码", "口令", "验证码",
+)
+
+_MISSING = object()
+
+
+def _doc_value(name: str, params: dict) -> str:
+    """docstring 里 {{参数}} 的替换值：敏感参数打码，未知参数保留占位原文"""
+    value = params.get(name, _MISSING)
+    if value is _MISSING:
+        return "{{" + name + "}}"
+    if any(k in str(name).lower() for k in _SENSITIVE_DOC_KEYS):
+        return "***"
+    return str(value)
+
+
 def log(cls):
-    """
-    类装饰器，用于将装饰器应用到类及其父类的所有方法上，
-    使得方法仅在被调用时记录其文档注释。
+    """类装饰器：给类的公开方法套上「调用时记录 docstring」的日志。
+
+    - staticmethod / classmethod 保持原有绑定语义：旧实现把它们统一包装成普通
+      函数，静态方法通过实例调用时会把 self 当作第一个参数传进去；
+    - property 不处理（getter 不是普通方法调用，docstring 也不是日志模板）；
+    - docstring 里的 {{参数}} 替换为实参，password / token / 密码 一类参数打码。
     """
 
     def method_log_decorator(func):
@@ -117,7 +139,7 @@ def log(cls):
             doc = func.__doc__
             if doc:
                 formatted_doc = re.sub(
-                    r"{{(\w+)}}", lambda m: str(params.get(m.group(1), m.group(0))), doc
+                    r"{{(\w+)}}", lambda m: _doc_value(m.group(1), params), doc
                 )
                 logger.info(formatted_doc)
             return func(*args, **kwargs)
@@ -129,17 +151,25 @@ def log(cls):
         if base_cls.__name__ == "object":
             continue
         for name, attr in base_cls.__dict__.items():
-            if not callable(attr) or name.startswith("__"):
-                continue
-            if name.startswith("_"):
+            if name.startswith("__") or name.startswith("_"):
                 continue  # 内部方法不记录日志，也不强制要求 docstring
-            if attr.__doc__ is None:
-                raise TypeError(f"{cls.__name__}.{name} 缺少文档字符串")
-            if attr.__doc__.strip().startswith("__"):
+            if isinstance(attr, property):
+                continue  # 属性访问不套日志
+            if isinstance(attr, (staticmethod, classmethod)):
+                func, kind = attr.__func__, type(attr)
+            elif callable(attr):
+                func, kind = attr, None
+            else:
                 continue
-            collected[name] = attr
-    for name, attr in collected.items():
-        setattr(cls, name, method_log_decorator(attr))
+            if func.__doc__ is None:
+                raise TypeError(f"{cls.__name__}.{name} 缺少文档字符串")
+            if func.__doc__.strip().startswith("__"):
+                continue
+            collected[name] = (func, kind)
+    for name, (func, kind) in collected.items():
+        wrapped = method_log_decorator(func)
+        # 原样套回 staticmethod / classmethod，保住绑定语义
+        setattr(cls, name, kind(wrapped) if kind else wrapped)
     return cls
 
 

@@ -231,6 +231,54 @@ class TestArgumentUnwrap:
         demo_page.upload_input.set_input_files(r"D:\data\logo.png")
         assert any("logo.png" in m and "D:\\data" not in m for m in log_messages)
 
+    def test_basename_handles_both_separators(self):
+        """日志取文件名不能依赖 os.sep：POSIX 上 os.path.basename 不认反斜杠。
+
+        CI 是 Linux，本机是 Windows，这条用例在两边都要通过。
+        """
+        from just_go._internal.element import _basename
+
+        assert _basename(r"D:\data\logo.png") == "logo.png"
+        assert _basename("/data/logo.png") == "logo.png"
+        assert _basename("logo.png") == "logo.png"
+        assert _basename(r"D:\data\a.png") == "a.png"
+
+    def test_non_path_value_not_truncated(self, demo_page, log_messages):
+        """日期这类含斜杠的普通值不能当成文件路径截成最后一段"""
+        demo_page.remark.fill("2026/11/13")
+        assert any("2026/11/13" in m for m in log_messages)
+        assert not any(m.endswith('"13"') for m in log_messages)
+
+    def test_looks_like_path(self):
+        from just_go._internal.element import _looks_like_path
+
+        assert _looks_like_path(r"D:\data\logo.png")
+        assert _looks_like_path("/tmp/cases.csv")
+        assert _looks_like_path("images/btn.png")
+        assert not _looks_like_path("2026/11/13")
+        assert not _looks_like_path("a/b")
+
+    def test_unwrap_args_covers_async_element(self):
+        """异步元素互传（drag_to/filter）也要还原成原生 Locator"""
+        from just_go._internal.element import _unwrap_args
+
+        class FakeOwner:
+            class page:
+                @staticmethod
+                def locator(selector):
+                    return FakeLocator(selector, [])
+
+        target = AsyncElement(FakeOwner(), selector="#b")
+        args, kwargs = _unwrap_args((target,), {"target": target})
+        assert isinstance(args[0], FakeLocator)
+        assert isinstance(kwargs["target"], FakeLocator)
+
+    def test_async_element_has_all(self):
+        """AsyncElement 与同步版对齐，提供 all"""
+        import inspect as _inspect
+
+        assert _inspect.iscoroutinefunction(AsyncElement.all)
+
 
 class TestPassthrough:
     def test_unknown_member_passthrough(self, demo_page):

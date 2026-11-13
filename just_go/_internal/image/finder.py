@@ -1,6 +1,4 @@
-"""模板匹配核心实现。
-
-供上层 actions 调用；模板路径解析、匹配、缓存都在这里完成。
+"""模板匹配
 """
 
 from __future__ import annotations
@@ -123,7 +121,12 @@ def _resolve_image_path(
     if p.is_absolute():
         bases: list[Optional[Path]] = [None]
     else:
-        bases = [Path.cwd()]
+        # 相对路径优先按 IMAGE_PATH（= 测试项目根）解析，与“模板图路径基于项目根”的
+        # 约定一致；旧实现只认 Path.cwd()，IDE/CI 里 cwd ≠ 项目根时找不到模板图。
+        bases = [Path(IMAGE_PATH)]
+        cwd = Path.cwd()
+        if cwd != Path(IMAGE_PATH):
+            bases.append(cwd)
         if search_dirs:
             bases.extend(Path(os.path.expanduser(str(d))) for d in search_dirs)
 
@@ -165,7 +168,14 @@ def _collect_image_paths(images: Sequence[Any], search_dirs: Sequence[Any] | Non
 
 def _load_template(path: str) -> _Template:
     """带缓存地加载模板（文件被替换后会按 mtime/size 自动失效）。"""
-    st = os.stat(path)
+    try:
+        st = os.stat(path)
+    except OSError as exc:
+        # 模板在解析后被删除/占用：归入框架的 TemplateNotFoundError 体系，
+        # 而不是把裸 OSError 抛给调用方
+        raise TemplateNotFoundError(
+            path, [f"{path}（状态读取失败：{exc}）"], what="可用的模板图片"
+        ) from exc
     key = (path, st.st_mtime_ns, st.st_size)
     with _cache_lock:
         cached = _template_cache.get(key)

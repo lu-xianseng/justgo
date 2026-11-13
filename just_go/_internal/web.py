@@ -6,6 +6,9 @@
 
 - SyncWebUI：配合 def test_xxx(page) 同步用例
 - AsyncWebUI：配合 async def test_xxx(page) 异步用例，所有方法需 await
+
+接收 locator 参数的方法统一支持三种入参：
+    选择器字符串、Element / AsyncElement（element() 声明的元素）、原生 Locator
 """
 import functools
 from typing import Any, Callable, TypeVar
@@ -20,6 +23,7 @@ except ImportError as e:
 
     missing = "allure" if e.name == "allure" else "playwright"
     raise SoftwareNotInstallError(missing) from e
+from just_go._internal.element import AsyncElement, Element
 from just_go._internal.logger import logger
 
 F = TypeVar("F", bound=Callable[..., Any])
@@ -40,6 +44,36 @@ class SyncWebUI:
             for p in pages:
                 if id(p) != id(self.page):
                     p.close()
+
+    # ------------------------------------------------------------------
+    # locator 入参归一化（子类可复用）
+    # ------------------------------------------------------------------
+    def _as_locator(self, target):
+        """选择器字符串 / Element / Locator → 原生 Locator。
+
+        Element 取 .native（已绑定它自己的 page，切换标签页后仍定位正确）；
+        字符串按选择器处理；其余对象（Locator）原样返回。
+        """
+        if isinstance(target, Element):
+            return target.native
+        if isinstance(target, str):
+            return self.page.locator(target)
+        return target
+
+    def _as_selector(self, target):
+        """Element → 选择器字符串（frame_locator 这类只收字符串的 API 用）
+
+        没有选择器表达式的 Element（手工构造缺 selector）直接报错，
+        比把 None 交给 frame_locator 更好定位。
+        """
+        if not isinstance(target, Element):
+            return target
+        if not target.selector:
+            raise ValueError(
+                "该 Element 没有选择器表达式，frame_locator 只接受选择器字符串，"
+                "请直接传 iframe 的选择器"
+            )
+        return target.selector
 
     @classmethod
     def intercept_response(cls, api) -> Callable[[F], Callable[..., Response]]:
@@ -87,12 +121,12 @@ class SyncWebUI:
         self.page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
 
     def scroll_to(self, locator):
-        """滚动使元素进入视口"""
-        self.page.locator(locator).scroll_into_view_if_needed()
+        """滚动使元素进入视口。locator 可传 element(...) 声明的 Element"""
+        self._as_locator(locator).scroll_into_view_if_needed()
 
     def upload_file(self, locator, path):
-        """上传文件（单文件 str 或多文件 list[str]）"""
-        self.page.locator(locator).set_input_files(path)
+        """上传文件（单文件 str 或多文件 list[str]）。locator 可传 Element"""
+        self._as_locator(locator).set_input_files(path)
 
     def screenshot(self, name="screenshot", full_page=False):
         """截图并附加到 allure 报告"""
@@ -100,8 +134,8 @@ class SyncWebUI:
         allure.attach(png, name=name, attachment_type=allure.attachment_type.PNG)
 
     def switch_to_frame(self, locator):
-        """进入 iframe，返回 FrameLocator"""
-        return self.page.frame_locator(locator)
+        """进入 iframe，返回 FrameLocator。Element 取其选择器表达式"""
+        return self.page.frame_locator(self._as_selector(locator))
 
     def exit_frame(self):
         """退出 iframe，回到主文档"""
@@ -114,8 +148,8 @@ class SyncWebUI:
         )
 
     def get_attribute(self, locator, name):
-        """获取元素属性值"""
-        return self.page.locator(locator).get_attribute(name)
+        """获取元素属性值。locator 可传 Element"""
+        return self._as_locator(locator).get_attribute(name)
 
     def execute_js(self, script, arg=None):
         """执行 JavaScript，返回结果"""
@@ -136,8 +170,8 @@ class SyncWebUI:
         self.page.unroute(pattern)
 
     def drag_and_drop(self, source, target):
-        """拖拽：source 元素拖到 target 元素"""
-        self.page.drag_and_drop(source, target)
+        """拖拽：source 元素拖到 target 元素（两者都可传 Element）"""
+        self._as_locator(source).drag_to(self._as_locator(target))
 
 
 # ======================================================================
@@ -150,6 +184,28 @@ class AsyncWebUI:
         """构造函数只保存 page 引用（__init__ 不能是 async）。
         若需关闭多余 tab，请在构造后调用 await close_other_tabs()。"""
         self.page: AsyncPage = page
+
+    # ------------------------------------------------------------------
+    # locator 入参归一化（子类可复用）
+    # ------------------------------------------------------------------
+    def _as_locator(self, target):
+        """选择器字符串 / AsyncElement / 异步 Locator → 异步 Locator"""
+        if isinstance(target, (Element, AsyncElement)):
+            return target.native
+        if isinstance(target, str):
+            return self.page.locator(target)
+        return target
+
+    def _as_selector(self, target):
+        """Element / AsyncElement → 选择器字符串（frame_locator 只收字符串）"""
+        if not isinstance(target, (Element, AsyncElement)):
+            return target
+        if not target.selector:
+            raise ValueError(
+                "该 Element 没有选择器表达式，frame_locator 只接受选择器字符串，"
+                "请直接传 iframe 的选择器"
+            )
+        return target.selector
 
     async def close_other_tabs(self):
         """关闭除当前页外的其他标签页"""
@@ -207,12 +263,12 @@ class AsyncWebUI:
         await self.page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
 
     async def scroll_to(self, locator):
-        """滚动使元素进入视口"""
-        await self.page.locator(locator).scroll_into_view_if_needed()
+        """滚动使元素进入视口。locator 可传 async_element(...) 声明的 AsyncElement"""
+        await self._as_locator(locator).scroll_into_view_if_needed()
 
     async def upload_file(self, locator, path):
-        """上传文件"""
-        await self.page.locator(locator).set_input_files(path)
+        """上传文件。locator 可传 AsyncElement"""
+        await self._as_locator(locator).set_input_files(path)
 
     async def screenshot(self, name="screenshot", full_page=False):
         """截图并附加到 allure 报告"""
@@ -221,7 +277,7 @@ class AsyncWebUI:
 
     def switch_to_frame(self, locator):
         """进入 iframe，返回 AsyncFrameLocator，后续操作需 await"""
-        return self.page.frame_locator(locator)
+        return self.page.frame_locator(self._as_selector(locator))
 
     def exit_frame(self):
         """退出 iframe，回到主文档"""
@@ -234,8 +290,8 @@ class AsyncWebUI:
         )
 
     async def get_attribute(self, locator, name):
-        """获取元素属性值"""
-        return await self.page.locator(locator).get_attribute(name)
+        """获取元素属性值。locator 可传 AsyncElement"""
+        return await self._as_locator(locator).get_attribute(name)
 
     async def execute_js(self, script, arg=None):
         """执行 JavaScript，返回结果"""
@@ -256,5 +312,5 @@ class AsyncWebUI:
         await self.page.unroute(pattern)
 
     async def drag_and_drop(self, source, target):
-        """拖拽：source 元素拖到 target 元素"""
-        await self.page.drag_and_drop(source, target)
+        """拖拽：source 元素拖到 target 元素（两者都可传 AsyncElement）"""
+        await self._as_locator(source).drag_to(self._as_locator(target))

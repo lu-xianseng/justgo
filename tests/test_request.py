@@ -77,6 +77,17 @@ class TestRetry:
                 req.request("GET", "http://x", retries=2)
         assert len(calls) == 3
 
+    def test_negative_retries_rejected(self):
+        """retries=-1 会让循环一次都不执行，最终只抛“请求错误: None”，必须直接拒绝"""
+        req = Request(retry_times=0, retry_delay=0)
+        with pytest.raises(ValueError, match="retries"):
+            req.request("GET", "http://x", retries=-1)
+
+    def test_non_integer_retries_rejected(self):
+        req = Request(retry_times=0, retry_delay=0)
+        with pytest.raises(ValueError, match="retries"):
+            req.request("GET", "http://x", retries="two")
+
 
 class TestUploadDownload:
     def test_upload_passes_files_and_data(self, tmp_path):

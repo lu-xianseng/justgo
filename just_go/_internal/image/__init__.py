@@ -1,6 +1,4 @@
 """图像识别（屏幕找图）：模板匹配 + 取图。
-
-对外门面是 just_go.image，本包只放实现。
 """
 
 from just_go._internal.settings import IMAGE_PATH

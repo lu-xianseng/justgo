@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """GenerateReport：allure 版本探测与命令组装（单文件 / 中文 / 项目名）"""
+import pytest
+
 import just_go._internal.tools as tools
 from just_go._internal.tools import GenerateReport
 
@@ -63,3 +65,55 @@ def test_report_name_fallback_to_project(monkeypatch):
     g = GenerateReport()
     assert g.report_name == "AutoLib"
     assert g.report_language == "zh"
+
+
+def test_safe_version_returns_unknown(monkeypatch):
+    """包未安装时报告环境信息降级为 unknown，不抛异常中断收尾"""
+
+    def boom(_name):
+        raise RuntimeError("not installed")
+
+    monkeypatch.setattr(tools, "version", boom)
+    assert tools._safe_version("requests") == "unknown"
+
+
+class _MarkItem:
+    def __init__(self):
+        self.markers = []
+
+    def add_marker(self, marker):
+        self.markers.append(marker)
+
+
+class _MarkConfig:
+    def __init__(self):
+        self.marker_lines = []
+
+    def addinivalue_line(self, name, line):
+        self.marker_lines.append(line)
+
+
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnknownMarkWarning")
+def test_add_mark_only_registers_level_column():
+    """只有枚举型列（用例级别）注册成 pytest marker，自由文本列不注册"""
+    GenerateReport._registered_markers.clear()
+    item, cfg = _MarkItem(), _MarkConfig()
+    tags = {
+        "用例ID": "1001",
+        "用例级别": "L1",
+        "场景": "登录接口",
+        "步骤": "1. 打开页面",
+    }
+    GenerateReport().add_mark(item, cfg, tags)
+    assert cfg.marker_lines == ["L1: L1"]
+
+
+def test_take_record_file_clears_reference(tmp_path):
+    """录屏文件取出后不再返回，避免删不掉时被下一条用例重复 attach"""
+    out = tmp_path / "case.mp4"
+    out.write_bytes(b"x")
+    rec = tools.Record()
+    rec._Record__out_file = str(out)
+    assert rec.record_file == str(out)
+    assert rec.take_record_file() == str(out)
+    assert rec.record_file is None

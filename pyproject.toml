@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "just-go"
-version = "0.3.0"
+version = "0.3.1"
 description = "Web 自动化测试框架：框架与测试代码分离，一条命令指定测试项目执行自动化测试并产出报告"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -37,6 +37,11 @@ dependencies = [
     "pipenv",
     "loguru",
     "allure-python-commons",
+    # HTTP 封装（just_go.http）与报告环境信息（PlaywrightVersion/RequestsVersion）
+    # 都依赖 requests；漏声明时干净环境会在生成报告阶段抛 PackageNotFoundError
+    "requests",
+    # 数据 mock（just_go.data 的 mock）依赖 faker
+    "faker",
 ]
 
 # 图像识别（屏幕找图）是可选能力：只有装了 just-go[image] 才会带上
@@ -54,11 +59,10 @@ Homepage = "https://github.com/lu-xianseng/justgo"
 Repository = "https://github.com/lu-xianseng/justgo"
 
 [project.scripts]
-just-go = "cli:main"
+just-go = "just_go.cli:main"
 
 [tool.setuptools]
 packages = ["just_go", "just_go._internal", "just_go._internal.image"]
-py-modules = ["cli"]
 
 # 配置文件与 init 骨架模板属于框架资源，必须随包安装（默认只打包 .py 文件）
 [tool.setuptools.package-data]

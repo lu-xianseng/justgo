@@ -86,7 +86,8 @@ class ConfigWrapper:
         return self._sections.get(section_name)
 
 
-# 框架根目录：just_go 包所在项目的上级（工具类配置的相对路径基于此解析）
+# just_go 包目录：框架自带 configs/、templates/ 都在它下面，
+# 工具类配置的相对路径（allure_path / ffmpeg_path）也基于此解析
 FRAMEWORK_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # 测试项目根目录：运行时通过 CLI 指定（环境变量 JUSTGO_PROJECT_ROOT 优先，否则取当前工作目录）

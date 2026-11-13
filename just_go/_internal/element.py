@@ -21,7 +21,6 @@
 - 链式定位（first/last/nth/filter/get_by_*/locator 等）返回包装后的 Element，日志能力不丢
 - 原生 Locator 用 .native 取（.locator 保留 Playwright 原义：子元素定位）
 """
-import os
 from typing import TYPE_CHECKING, Any, cast, overload
 
 import allure
@@ -114,26 +113,62 @@ def _page_name(owner):
 
 
 def _unwrap_args(args, kwargs):
-    """把 Element 参数还原成原生 Locator（drag_to / filter / drop 等要用）"""
-    new_args = tuple(a.native if isinstance(a, Element) else a for a in args)
+    """把 Element / AsyncElement 参数还原成原生 Locator（drag_to / filter / drop 等要用）
+
+    AsyncElement 也必须一起还原：异步元素互传（a.drag_to(b)、a.filter(has=b)）时，
+    旧实现只认 Element，会把 AsyncElement 原样交给 Playwright 报类型错误。
+    """
+    types = (Element, AsyncElement)
+    new_args = tuple(a.native if isinstance(a, types) else a for a in args)
     new_kwargs = {
-        k: (v.native if isinstance(v, Element) else v) for k, v in kwargs.items()
+        k: (v.native if isinstance(v, types) else v) for k, v in kwargs.items()
     }
     return new_args, new_kwargs
 
 
+def _basename(value):
+    """取文件名：Windows 与 POSIX 路径都按最后一个分隔符切。
+
+    不能用 os.path.basename —— POSIX 上它不把反斜杠当分隔符，
+    Windows 盘符路径（D:\\data\\logo.png）会整串留在日志里。
+    """
+    return str(value).replace("\\", "/").rsplit("/", 1)[-1]
+
+
+#: 只有“看起来像文件路径”的值才截成文件名：带盘符（D:\...）、以分隔符开头
+#: （/tmp/x、\\server\x）、或最后一段带常见文件扩展名。
+#: 否则 fill("2026/11/13") 会被记成 "13"、evaluate("a/b") 只剩 "b"，
+#: 日志与实际传入值不符，排查时会被误导。
+_PATH_SUFFIXES = (
+    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg",
+    ".txt", ".csv", ".json", ".xml", ".xls", ".xlsx",
+    ".pdf", ".doc", ".docx", ".zip", ".mp4", ".webm",
+)
+
+
+def _looks_like_path(value: str) -> bool:
+    """判断字符串是否文件路径（决定日志里是否只保留文件名）"""
+    if not value or ("\\" not in value and "/" not in value):
+        return False
+    drive = len(value) >= 2 and value[1] == ":"      # D:\data\logo.png
+    rooted = value[0] in ("/", "\\")                 # /tmp/x、\\share\x
+    tail = value.replace("\\", "/").rsplit("/", 1)[-1].lower()
+    return drive or rooted or tail.endswith(_PATH_SUFFIXES)
+
+
 def _fmt_raw(raw):
     """值格式化：文件路径只留文件名，超长截断"""
-    if isinstance(raw, Element):
+    if isinstance(raw, (Element, AsyncElement)):
         return repr(raw)
     if isinstance(raw, (list, tuple)):
         items = [
-            os.path.basename(x) if isinstance(x, str) else str(x) for x in raw
+            _basename(x) if isinstance(x, str) and _looks_like_path(x) else str(x)
+            for x in raw
         ]
         text = "[" + ", ".join(items) + "]"
-    elif isinstance(raw, str) and ("\\" in raw or "/" in raw):
-        # 单个文件路径只显示文件名，避免日志里泄露目录结构
-        text = os.path.basename(raw)
+    elif isinstance(raw, str) and _looks_like_path(raw):
+        # 文件路径只显示文件名，避免日志里泄露目录结构
+        text = _basename(raw)
     else:
         text = str(raw)
     if len(text) > _MAX_VALUE_LEN:
@@ -411,6 +446,15 @@ class AsyncElement:
     def last(self):
         """匹配结果中的最后一个"""
         return self._derive(self.native.last)
+
+    async def all(self):
+        """匹配结果的全部元素（list[AsyncElement]），需 await
+
+        与同步 Element.all 对齐：旧实现 AsyncElement 缺这个方法，
+        异步用例只能自己 await native.count() 后循环 nth。
+        """
+        count = await self.native.count()
+        return [self.nth(i) for i in range(count)]
 
     def __getattr__(self, name):
         """白名单外的成员直通原生 AsyncLocator"""
