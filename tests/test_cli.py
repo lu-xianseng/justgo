@@ -148,3 +148,40 @@ def test_cmd_init_creates_images_dir(tmp_path, monkeypatch):
     assert cli.cmd_init(SimpleNamespace(target=f"{target}[gui]")) == 0
     assert (target / "images").is_dir()
     assert (target / "pages" / "base_page.py").is_file()
+
+
+def test_cmd_init_scaffold_collects(tmp_path, monkeypatch):
+    """init 生成的骨架必须能被 pytest 收集：CaseControl 要求方法名含用例文件名"""
+    import subprocess
+
+    monkeypatch.setattr(cli.shutil, "which", lambda name: None)  # 跳过 pipenv
+    target = tmp_path / "proj"
+    assert cli.cmd_init(SimpleNamespace(target=f"{target}[all]")) == 0
+
+    r = subprocess.run(
+        [sys.executable, "-m", "pytest", "--collect-only", "-q"],
+        cwd=str(target),
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONPATH": cli.FRAMEWORK_ROOT},
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "test_login_1" in r.stdout
+    assert "test_login_2" in r.stdout
+
+
+def test_template_cases_do_not_share_file_name_rule():
+    """模板里每个用例文件只能放同 ID 的用例，否则收集阶段 CaseError"""
+    templates, _ = cli._build_templates("gui")
+    for rel, content in templates.items():
+        if not rel.startswith("cases/login/test_"):
+            continue
+        stem = os.path.splitext(os.path.basename(rel))[0]
+        for line in content.splitlines():
+            line = line.strip()
+            if not line.startswith("def test_"):
+                continue
+            method = line.split("(")[0].removeprefix("def ")
+            assert stem == method or stem.startswith(method + "_") or method in stem, (
+                f"{rel}: 方法 {method} 与文件名 {stem} 不匹配"
+            )

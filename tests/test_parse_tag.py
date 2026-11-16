@@ -66,6 +66,37 @@ class TestEvaluateExpression:
         tags = {"用例ID": "1001", "用例级别": "L1|L2", "场景": "", "跳过原因": ""}
         assert ParseTag.evaluate_expression("L1 and L2", tags) is True
 
+    def test_malformed_expression_returns_false_without_hanging(self):
+        """畸形表达式曾让 apply_operator 原地空转 → --tag 把整个进程挂死"""
+        for expression in (
+            "L1 and )",
+            "L1 and and L1",
+            "L1 or or L2",
+            ") L1",
+            "L1 L2",
+            "and L1",
+            "L1 and",
+            "(L1",
+            "((L1)",
+        ):
+            assert ParseTag.evaluate_expression(expression, self.tags) is False
+
+    def test_redundant_parentheses_still_work(self):
+        assert ParseTag.evaluate_expression("((L1))", self.tags) is True
+        assert ParseTag.evaluate_expression("(L1 and 登录)", self.tags) is True
+
+    def test_well_formed_helper(self):
+        from just_go._internal.parse_tag import _is_well_formed
+
+        assert _is_well_formed(["L1"])
+        assert _is_well_formed(["(", "L1", ")", "and", "L2"])
+        assert not _is_well_formed([])
+        assert not _is_well_formed(["L1", "and"])
+        assert not _is_well_formed(["and", "L1"])
+        assert not _is_well_formed(["L1", ")"])
+        assert not _is_well_formed(["(", "L1"])
+        assert not _is_well_formed(["L1", "L2"])
+
 
 class TestModuleDir:
     """_module_dir：绝对/相对 location 都正确转成相对项目根的模块目录"""

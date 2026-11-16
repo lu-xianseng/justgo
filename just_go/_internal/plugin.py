@@ -3,16 +3,7 @@
 # @Time     :2025/2/26 17:20
 # @Author   :luye
 """
-just-go 框架的 pytest 插件入口。
-
-原为测试项目根目录的 conftest.py，框架独立后迁移至此。
-通过 `just-go run <项目>` 执行时由 CLI 注入 `-p just_go._internal.plugin` 加载；
-也可在测试项目 conftest.py 中声明 `pytest_plugins = ["just_go._internal.plugin"]` 后直接敲 pytest。
-
-用例写法支持两种：
-- 同步：def test_xxx(page)，page 为 playwright.sync_api 页面（默认，原有方式）
-- 异步：async def test_xxx(page)，page 为 playwright.async_api 页面，可 await page.xxx()
-  异步用例由 pytest_pyfunc_call 在事件循环中执行，无需安装 pytest-asyncio。
+just-go 框架插件入口
 """
 import asyncio
 import inspect
@@ -29,6 +20,7 @@ from just_go._internal.logger import custom_logger, logger, set_case_label
 from just_go._internal.parse_tag import ParseTag  # 显式导入，确保使用 tag/ 目录限定的新版 ParseTag
 from just_go._internal.settings import ROOTDIR, TEMP_PATH, TMP_REPORT_PATH, config
 from just_go._internal.tools import generate_report, record
+from just_go.config import apply_env
 
 parse_tag = ParseTag()
 enable_record = False
@@ -89,11 +81,6 @@ def pytest_runtest_teardown(item, nextitem):
 def pytest_sessionstart(session):
     """在测试会话开始时加载所有标记数据"""
     logger.info("开始加载测试用例标记数据...")
-    # 多环境：--env 指定环境标识（dev/test/prod），写入 JUSTGO_ENV 供测试项目
-    # conftest 按环境加载被测地址（详见骨架 conftest.py 的 BASE_URLS 示例）
-    env = session.config.getoption("--env")
-    if env:
-        os.environ["JUSTGO_ENV"] = env
     parse_tag.load_all_test_tags(session)
 
 
@@ -209,6 +196,10 @@ def pytest_sessionfinish(session, exitstatus):
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_configure(config):
+    # 多环境：--env 在这里才解析完成。测试项目 conftest.py 顶部的 setup_env()
+    # 执行得更早（conftest 导入时），那时只有 sys.argv 里的原始文本可用；
+    # 这里用解析后的值再刷新一次，保证 JUSTGO_TEST_BASE_URL 与 --env 一致。
+    apply_env(config.getoption("--env"))
     # 上一轮 allure 原始结果只在这里清空：这是唯一可靠的时机。
     # 旧实现放在 import just_go 里，导致 IDE 索引、just-go --help、以及
     # 另一个进程正在跑测试时都会误删该目录（目录只读时还会让 import 失败）。

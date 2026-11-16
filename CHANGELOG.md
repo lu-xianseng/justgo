@@ -3,6 +3,50 @@
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 版本号递增规则：修复 `x.y.patch+1`，新功能 `x.minor+1`，不兼容变更 `major+1`。
 
+## [0.3.2] - 2026-11-16
+
+### 新增
+- **接口客户端 `page.api`**：`SyncWebUI` / `AsyncWebUI` 挂 `APIRequest` / `AsyncAPIRequest`，让 GUI 用例在同一会话里造数据、取数据，不必再裸用 `page.request` 手拼 query、每次传 headers
+  - 方法：`get` / `post` / `put` / `patch` / `delete` / `request`，透传 `params` / `json` / `data` / `files` / `headers` / `timeout`；`json=` 转 Playwright 的 `data`，`data=dict` 转 `form`，`files=`（路径 / bytes / `(文件名, 内容[, MIME])`）转 `multipart`，同传冲突抛 `ValueError`
+  - 统一响应 `ApiResponse` / `AsyncApiResponse`：`status_code` / `ok` / `headers` / `url`、`body()` / `text` / `json()`、`assert_status(*expected)` / `assert_ok()`，不命中抛 `RequestError` 并带 url 与响应前 200 字
+  - 相对路径按 `JUSTGO_TEST_BASE_URL`（`setup_env()` 写入）解析，缺基址直接抛 `ConfigError`，不再拼出错误 URL 静默失败
+  - 默认不抛非 2xx（业务接口状态码不等于用例失败），`fail_on_status=True` 才在非 2xx 时抛；`retry_times` 映射到 Playwright 的 `max_retries`
+  - 超时单位为秒，`timeout=0` 表示不超时（与 Playwright 语义一致）
+  - **自动沿用登录态鉴权**：页面对象构造时即 `bind_auth(context)`，监听同源业务请求把 `Authorization` / `X-Access-Token` / `X-Token` 同步进请求头，token 型鉴权（cookie 为空）的项目不必再在 conftest 里抓 token 再注入；显式 `set_headers` / `set_token` 或构造时传 headers 后停止自动覆盖
+  - `wait_auth(timeout)` 靠 `page.wait_for_timeout` 推动 Playwright 派发事件，等首屏业务请求带上 token（单纯 `sleep` 等不到），判据是「抓到过鉴权头」而不是 headers 非空；`refresh_api()` 在 page 换 context 后重建并先 `unbind_auth()` 摘掉旧监听；`ensure_api()` 只在 context 真的变了才重建（同 context 切标签不丢已抓到的 token）
+  - 边界：不支持流式下载与请求级代理/证书（`context.request` 是 context 级），大文件下载仍走 `Request.download()`；纯 API 套件仍建议用 `Request`，走这条路径会拉起驱动进程
+
+### 修复
+- **`--env` 完全不生效**：插件在 `pytest_sessionstart` 才写 `JUSTGO_ENV`，而项目 `conftest.py` 顶部的 `setup_env()` 在导入时就执行了；且它用 `setdefault`，即使环境变量后来变了也不会覆盖。`just-go run demo --env prod` 实际一直请求 dev 地址。改为 `setup_env()` 先从命令行原样取 `--env`，插件在 `pytest_configure` 用解析后的值再调 `apply_env()` 刷新（用户自己 export 的 `JUSTGO_TEST_BASE_URL` 仍优先）
+- **`just-go init` 骨架无法被收集**：模板 `cases/login/test_login_1.py` 里写了 `test_login_2`，而 `CaseControl` 要求方法名包含用例文件名，生成项目第一步 `pytest --collect-only` 就 `CaseError` 中断。第二条用例拆到 `test_login_2.py`，`tag/login.csv` 同步登记
+- **API 骨架模块名不一致**：`init [api]` 生成 `apis/base_api.py`，但 `user_manager_api.py` 与文档都是 `from .base import BaseApi`，生成项目导入即 `ModuleNotFoundError`。统一为 `apis/base.py`
+- **`create_new_instance()` 对模板页面对象 TypeError**：同步版把 `only_keep_one` 透传给子类构造函数，而模板 `BasePage` / `PageExport` 的 `__init__` 只接收 `page`。改为先构造实例再关闭多余 tab（与异步版一致）
+- **`--tag` 畸形表达式死循环**：`apply_operator()` 在操作数不足时只 `return` 而不弹出运算符，调用方 `while` 条件不变，`--tag "L1 and )"` / `"L1 and and L1"` 会把整个进程挂死。新增 `_is_well_formed()` 先做结构校验，并让 `apply_operator` 兜底抛错
+- **`AsyncAssert` 不认 `AsyncElement`**：`_to_locator` 只处理 `Element`，异步用例 `await page.assert_visible(async_element(...))` 报 `Unsupported type`。两种包装都还原成原生 Locator
+- **`assert_url` / `assert_title` 不能传 `PageExport`**：包装对象被 `expect()` 判为 `Unsupported type`，新增 `_to_page()` 还原原生 Page
+- **`sleep()` 截断小数**：`int(_time) * 1000` 让 `sleep(0.5)` 实际等待 0ms，改为 `int(float(_time) * 1000)`
+- **`close_current_tab()` 只剩一页时拿到已关闭页**：`pages[-1]` 会指向刚关闭的页或空列表；改为先检查数量并提示
+- **`page.api` 预绑定失败会中断页面对象构造**：同步 fixture 里构造异步页面对象时没有运行中的事件循环，Playwright 的 `context.on()` 抛 `RuntimeError`。预绑定只是「尽早抓到首屏 token」的优化，任何失败都降级为 `api` 属性懒创建并记 debug 日志，不再打断构造
+
+### 变更（不兼容）
+- **`--env` 现在真正生效**：此前该参数被忽略，所有环境一律使用 `dev` 地址；升级后 `--env test` / `--env prod` 会按 `setup_env()` 的映射取地址。若映射里对应环境为空字符串，请求会因基址为空而失败，请补齐地址或只使用 `dev`
+- **`page.api` 的 `files=` 语义**：Playwright 的 `fetch` 没有 `files` 参数，文件上传统一转成 `multipart`（`FilePayload`）；请求参数校验失败（`TypeError`）也统一包成 `RequestError`
+
+### 文档
+- **README 重写**：按「为什么用 → 30 秒看懂 → 核心能力 → 5 分钟跑通 → 用例怎么写 → 能力详解」重排，特性按工程结构 / 写用例 / 跑用例 / 看结果分组；删掉重复的登录示例与页面类定义；修正 5 处与代码不符的示例（`page.context` → `page.page.context`、不存在的 `BASE_URLS`、tag CSV 嵌套路径、未定义的 `resp`、断言清单从 7 个补全到 22 个）
+- 参考手册拆分到 `docs/reference.md`（命令、配置、目录结构、环境要求、FAQ），README 只留主干
+- 补充 `LICENSE` 文件（MIT），修复 README 徽章 404
+- 异步用例说明更正：模板只生成同步 `PageExport`，异步用例直接用原生 page；需要异步页面对象与断言时给出 `AsyncBasePage` / `AsyncAssert` 的接入方式与混用风险
+- 模板生成的 `README.md` 与 API 模板的用例链接配置、tag CSV 路径说明同步更正（`setup_env(case_base_url=...)`、`tag/<模块>.csv`）
+- README 新增「在 GUI 用例里调接口：`page.api`」小节（方法、响应对象、鉴权、超时语义、边界）
+- 模板 `pages/base_page.py` docstring 补 `self.api` 用法示例，并提醒「接口造数据后页面不会自动刷新，要重新 `goto` / `reload`」；`switch_to_latest_tab` / `close_current_tab` 切换后自动 `ensure_api()`
+
+### 测试
+- 246 passed、ruff 通过（新增 75 条用例：41 条接口客户端用例 `tests/test_api.py`，覆盖 URL 拼接与缺基址、`json` / `form` / `str` / `files` 载荷构造、`timeout=0`、敏感头打码、`assert_status` / `assert_ok`、异常包装、`retry_times` 映射、同步/异步双套、`bind_auth` 自动鉴权、`wait_auth`、`unbind_auth` / `ensure_api`、`create_new_instance`、`sleep` 小数秒、`_init_api` 预绑定失败时降级不中断构造（同步/异步）；32 条缺陷回归用例覆盖 `--env` 解析与优先级、畸形 tag 表达式不挂死、`AsyncElement` / `PageExport` 断言还原、骨架 `init` 后可收集、`pytest_configure` 应用 `--env`）
+- 端到端验证：本地 HTTP 服务 + 真实 Playwright `APIRequestContext`，`timeout=0` 正常、`files=` 产出 `multipart/form-data` 且文件名保留、`Authorization` 自动沿用、非鉴权头不再让 `wait_auth` 误报；`init [all]` 生成 20 个文件后可 `--collect-only` 收集 3 条用例
+- 实际项目验证（`D:/ProjectCode/autolib_autotest`）：升级后登录 + `page.api` 取数用例 1 passed，接口 200 且 `code == 0`，`Authorization` 由 `bind_auth` 自动带入
+- 未覆盖：异步 `_async_page_lifecycle` 无真实异步用例可跑，仅代码结构与单测层面检查；`image/finder.py` 两处改动无自动化测试（cv2 为可选依赖，CI 不安装）
+
 ## [0.3.1] - 2026-11-13
 
 ### 新增

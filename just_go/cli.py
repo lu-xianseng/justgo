@@ -13,11 +13,6 @@ just-go 命令行入口。
     just-go run <名称|路径> [pytest参数] 执行指定测试项目的自动化测试
     just-go install [组件]               安装系统级工具（playwright/allure/ffmpeg）
 
-run 内部机制：
-    1. 解析目标为已注册名称或直接路径，得到测试项目根目录；
-    2. 设置环境变量 JUSTGO_PROJECT_ROOT 指向测试项目根；
-    3. 优先用项目 pipenv 虚拟环境执行（项目根有 Pipfile 时）；
-    4. 以测试项目根为工作目录调用 `python -m pytest -p just_go._internal.plugin <参数>`。
 """
 import argparse
 import glob
@@ -511,6 +506,9 @@ def _build_templates(mode: str) -> tuple:
                 "cases/login/test_login_1.py": _load_template(
                     os.path.join("gui", "cases", "login", "test_login_1.py")
                 ),
+                "cases/login/test_login_2.py": _load_template(
+                    os.path.join("gui", "cases", "login", "test_login_2.py")
+                ),
                 "pages/__init__.py": _load_template(
                     os.path.join("gui", "pages", "__init__.py")
                 ),
@@ -538,7 +536,7 @@ def _build_templates(mode: str) -> tuple:
                 "apis/__init__.py": _load_template(
                     os.path.join("api", "apis", "__init__.py")
                 ),
-                "apis/base_api.py": _load_template(
+                "apis/base.py": _load_template(
                     os.path.join("api", "apis", "base.py")
                 ),
                 "apis/user_manager_api.py": _load_template(

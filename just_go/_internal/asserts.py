@@ -13,13 +13,28 @@ import re
 from playwright.async_api import expect as async_expect
 from playwright.sync_api import expect as sync_expect
 
-from just_go._internal.element import Element
+from just_go._internal.element import AsyncElement, Element
 from just_go._internal.logger import logger
 
 
 def _to_locator(obj):
-    """Element 还原成原生 Locator，selector 字符串或 Page 原样返回"""
-    return obj.native if isinstance(obj, Element) else obj
+    """Element / AsyncElement 还原成原生 Locator，selector 字符串或 Page 原样返回"""
+    if isinstance(obj, (Element, AsyncElement)):
+        return obj.native
+    return obj
+
+
+def _to_page(obj):
+    """页面对象（PageExport 等 SyncWebUI/AsyncWebUI 子类）还原成原生 Playwright Page。
+
+    expect() 只认原生 Page，直接传 PageExport 会报 "Unsupported type"；
+    用例里 page.assert_url(page, ...) 传的是包装对象，这里统一还原。
+    """
+    from just_go._internal.web import AsyncWebUI, SyncWebUI
+
+    if isinstance(obj, (SyncWebUI, AsyncWebUI)):
+        return obj.page
+    return obj
 
 
 class AssertCommon:
@@ -215,12 +230,12 @@ class SyncAssert(AssertCommon):
 
     def assert_url(self, page, expected, timeout=None):
         """断言页面 URL"""
-        sync_expect(page).to_have_url(expected, timeout=timeout)
+        sync_expect(_to_page(page)).to_have_url(expected, timeout=timeout)
         logger.info(f"页面 URL 匹配: {expected}")
 
     def assert_title(self, page, expected, timeout=None):
         """断言页面标题"""
-        sync_expect(page).to_have_title(expected, timeout=timeout)
+        sync_expect(_to_page(page)).to_have_title(expected, timeout=timeout)
         logger.info(f"页面标题匹配: {expected}")
 
 
@@ -279,10 +294,10 @@ class AsyncAssert(AssertCommon):
 
     async def assert_url(self, page, expected, timeout=None):
         """断言页面 URL"""
-        await async_expect(page).to_have_url(expected, timeout=timeout)
+        await async_expect(_to_page(page)).to_have_url(expected, timeout=timeout)
         logger.info(f"页面 URL 匹配: {expected}")
 
     async def assert_title(self, page, expected, timeout=None):
         """断言页面标题"""
-        await async_expect(page).to_have_title(expected, timeout=timeout)
+        await async_expect(_to_page(page)).to_have_title(expected, timeout=timeout)
         logger.info(f"页面标题匹配: {expected}")

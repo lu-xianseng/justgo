@@ -9,6 +9,9 @@
 
 接收 locator 参数的方法统一支持三种入参：
     选择器字符串、Element / AsyncElement（element() 声明的元素）、原生 Locator
+
+接口请求走 self.api（复用浏览器 context 的 cookie 与登录态）：
+    page.api.get("/admin-api/xxx", params={"pageNo": 1})
 """
 import functools
 from typing import Any, Callable, TypeVar
@@ -23,6 +26,7 @@ except ImportError as e:
 
     missing = "allure" if e.name == "allure" else "playwright"
     raise SoftwareNotInstallError(missing) from e
+from just_go._internal.api import APIRequest, AsyncAPIRequest
 from just_go._internal.element import AsyncElement, Element
 from just_go._internal.logger import logger
 
@@ -39,11 +43,79 @@ class SyncWebUI:
 
     def __init__(self, page: Page, only_keep_one: bool = False):
         self.page: Page = page
+        self.__api = None
+        self._init_api()
         pages = self.page.context.pages
         if only_keep_one:
             for p in pages:
                 if id(p) != id(self.page):
                     p.close()
+
+    def _init_api(self):
+        """尽早创建接口客户端并绑定鉴权监听。
+
+        复用登录态时首屏的业务请求就带着 token；等到用例第一次访问 page.api
+        才绑定，这些请求已经发完，token 抓不到，接口就会 401。
+
+        这只是优化：任何原因绑不上都必须降级为 `api` property 懒创建，不能
+        打断页面对象的构造。已知会失败的场景——异步页面对象在同步 fixture
+        里构造时没有运行中的事件循环，`context.on()` 会抛 RuntimeError。
+        """
+        try:
+            api = APIRequest(self.page.context.request)
+            api.bind_auth(self.page.context, page=self.page)
+        except Exception as exc:  # noqa: BLE001  预绑定失败不应影响用例执行
+            logger.debug(f"page.api 预绑定鉴权监听失败，改为按需创建：{exc}")
+            self.__api = None
+            return
+        self.__api = api
+
+    # ------------------------------------------------------------------
+    # 接口客户端
+    # ------------------------------------------------------------------
+    @property
+    def api(self):
+        """接口客户端：复用当前 page 所属 context 的 cookie 与登录态。
+
+        懒创建，构造页面对象时不强依赖 context.request（假 page 也能构造）；
+        创建后缓存复用——**不能靠比较 context 对象身份来判断是否重建**，
+        Playwright 每次访问 page.context.request 都可能给出新的包装对象，
+        判断会一直成立，导致每次访问都新建实例、set_headers 的配置全部丢失。
+        page 被换到别的 context 后，调 refresh_api() 显式重建。
+
+        需要自定义基址 / 全局头时可以直接替换：page.api = APIRequest(..., base_url=...)
+        """
+        if self.__api is None:
+            self.__api = APIRequest(self.page.context.request)
+            # 自动沿用页面业务请求里的鉴权头：token 型鉴权的项目（cookie 为空）
+            # 不必再在 conftest 里手工抓 token 再注入
+            self.__api.bind_auth(self.page.context)
+        return self.__api
+
+    @api.setter
+    def api(self, value):
+        self.__api = value
+
+    def refresh_api(self):
+        """重建接口客户端（page 被换到另一个 context 后调用，保留自定义配置请自行迁移）"""
+        if self.__api is not None:
+            # 旧实例的 request 监听还挂在原 context 上，不注销会一直累积
+            self.__api.unbind_auth()
+        self.__api = APIRequest(self.page.context.request)
+        self.__api.bind_auth(self.page.context)
+        return self.__api
+
+    def ensure_api(self):
+        """page 换了 context 才重建接口客户端；同一个 context 内切标签不动它。
+
+        切标签（switch_to_latest_tab）通常仍在同一 context，盲目 refresh_api
+        会把已经抓到的鉴权头丢掉，紧接着调接口就会 401。
+        """
+        if self.__api is not None:
+            bound = getattr(self.__api, "_auth_context", None)
+            if bound is self.page.context:
+                return self.__api
+        return self.refresh_api()
 
     # ------------------------------------------------------------------
     # locator 入参归一化（子类可复用）
@@ -103,9 +175,19 @@ class SyncWebUI:
         return decorator
 
     def create_new_instance(self, page=None, close_other_tabs=True):
-        """创建新页面实例（通常用于新弹出的 tab）。Returns: (instance, page_obj)"""
+        """创建新页面实例（通常用于新弹出的 tab）。Returns: (instance, page_obj)
+
+        不能把 only_keep_one 透传给子类构造函数：模板 BasePage / PageExport 的
+        __init__ 只接收 page，多传参数会直接 TypeError。关闭多余 tab 在实例建好
+        之后做，与异步版保持一致。
+        """
         new_page = page if page else self.page.context.pages[-1]
-        return self.__class__(new_page, only_keep_one=close_other_tabs), new_page
+        instance = self.__class__(new_page)
+        if close_other_tabs:
+            for p in new_page.context.pages:
+                if id(p) != id(new_page):
+                    p.close()
+        return instance, new_page
 
     def all_tabs(self):
         """返回所有页面 tab 对象列表"""
@@ -114,7 +196,7 @@ class SyncWebUI:
     def sleep(self, _time):
         """等待 N 秒"""
         logger.info(f"等待{_time}秒")
-        self.page.wait_for_timeout(int(_time) * 1000)
+        self.page.wait_for_timeout(int(float(_time) * 1000))
 
     def scroll_to_bottom(self):
         """滚动到页面底部"""
@@ -184,6 +266,58 @@ class AsyncWebUI:
         """构造函数只保存 page 引用（__init__ 不能是 async）。
         若需关闭多余 tab，请在构造后调用 await close_other_tabs()。"""
         self.page: AsyncPage = page
+        self.__api = None
+        self._init_api()
+
+    def _init_api(self):
+        """尽早创建异步接口客户端并绑定鉴权监听（理由同同步版）。
+
+        同步 fixture 里构造异步页面对象时没有运行中的事件循环，`context.on()`
+        会抛 RuntimeError，这里必须降级为懒创建而不是打断构造。
+        """
+        try:
+            api = AsyncAPIRequest(self.page.context.request)
+            api.bind_auth(self.page.context, page=self.page)
+        except Exception as exc:  # noqa: BLE001  预绑定失败不应影响用例执行
+            logger.debug(f"page.api 预绑定鉴权监听失败，改为按需创建：{exc}")
+            self.__api = None
+            return
+        self.__api = api
+
+    # ------------------------------------------------------------------
+    # 接口客户端
+    # ------------------------------------------------------------------
+    @property
+    def api(self):
+        """接口客户端（异步）：复用当前 page 所属 context 的 cookie 与登录态。
+
+        懒创建并缓存；理由同同步版——不要用 context 对象身份判断重建。
+        所有请求方法都要 await。
+        """
+        if self.__api is None:
+            self.__api = AsyncAPIRequest(self.page.context.request)
+            self.__api.bind_auth(self.page.context)
+        return self.__api
+
+    @api.setter
+    def api(self, value):
+        self.__api = value
+
+    def refresh_api(self):
+        """重建异步接口客户端（page 被换到另一个 context 后调用）"""
+        if self.__api is not None:
+            self.__api.unbind_auth()
+        self.__api = AsyncAPIRequest(self.page.context.request)
+        self.__api.bind_auth(self.page.context)
+        return self.__api
+
+    def ensure_api(self):
+        """page 换了 context 才重建异步接口客户端（理由同同步版）"""
+        if self.__api is not None:
+            bound = getattr(self.__api, "_auth_context", None)
+            if bound is self.page.context:
+                return self.__api
+        return self.refresh_api()
 
     # ------------------------------------------------------------------
     # locator 入参归一化（子类可复用）
@@ -256,7 +390,7 @@ class AsyncWebUI:
     async def sleep(self, _time):
         """等待 N 秒"""
         logger.info(f"等待{_time}秒")
-        await self.page.wait_for_timeout(int(_time) * 1000)
+        await self.page.wait_for_timeout(int(float(_time) * 1000))
 
     async def scroll_to_bottom(self):
         """滚动到页面底部"""

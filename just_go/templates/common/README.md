@@ -43,7 +43,7 @@ pytest
 | --- | --- | --- |
 | 框架配置覆盖 | 项目根 `config.ini` | 只写要改的项，未写的沿用框架默认；如 `[run] show_browser = False` 改成无头运行 |
 | 被测系统地址 | conftest.py 的 setup_env() | 必改，填入 dev/test/prod 环境地址 |
-| 用例链接前缀 | conftest.py 的 JUSTGO_TEST_CASE_BASE_URL | 可选 |
+| 用例链接前缀 | conftest.py 的 `setup_env(..., case_base_url=...)` | 可选，填入测试管理平台链接前缀 |
 | 录屏开关 | pytest.ini 的 --record | 默认开；删掉该行即关闭 |
 | 录屏方式 | 框架内置 | 统一使用系统 ffmpeg 桌面录屏（Windows gdigrab / Linux x11grab），产出 mp4 附到报告；需已安装 ffmpeg（`just-go install ffmpeg`） |
 | 失败重试 | pytest.ini 的 --reruns | 默认失败重试 1 次；单用例可用 `@pytest.mark.flaky(reruns=3)` 覆盖，改 0 即关闭 |

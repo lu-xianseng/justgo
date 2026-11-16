@@ -103,3 +103,26 @@ def test_case_title_tolerates_item_without_obj():
         name = "test_x"
 
     assert _case_title(FakeItem()) == "未命名用例"
+
+
+def test_pytest_configure_applies_parsed_env(monkeypatch, tmp_path):
+    """--env 在 pytest_configure 才解析完成，要在那里再刷新一次被测地址。
+
+    测试项目 conftest 顶部的 setup_env() 早于参数解析，只靠它会让 --env 永远落到 dev。
+    """
+    from just_go._internal import plugin
+
+    monkeypatch.setattr(plugin, "TMP_REPORT_PATH", str(tmp_path / "report"))
+    calls = []
+    monkeypatch.setattr(plugin, "apply_env", lambda env=None: calls.append(env))
+
+    class FakeConfig:
+        option = type("Opt", (), {})()
+
+        def getoption(self, name, default=None):
+            return {"--env": "prod", "--record": "no", "numprocesses": None}.get(
+                name, default
+            )
+
+    plugin.pytest_configure(FakeConfig())
+    assert calls == ["prod"]

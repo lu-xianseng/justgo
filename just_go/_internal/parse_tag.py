@@ -21,6 +21,37 @@ __all__ = ["ParseTag", "UpdateTag"]
 _ASCII_TAG = re.compile(r"[0-9a-zA-Z_.\-]+")
 
 
+def _is_well_formed(tokens: List[str]) -> bool:
+    """判断 token 序列是否是合法表达式：操作数 / 运算符交替，括号成对。
+
+    旧实现的求值栈在操作数不足时只是原地 return，运算符没被弹出，
+    调用方的 while 条件不变就会死循环；畸形输入（如 ``L1 and )``、
+    ``L1 and and L1``）必须先在这里拦掉。
+    """
+    if not tokens:
+        return False
+    depth = 0
+    expect_operand = True
+    for token in tokens:
+        if token == "(":
+            if not expect_operand:
+                return False
+            depth += 1
+        elif token == ")":
+            if expect_operand or depth == 0:
+                return False
+            depth -= 1
+        elif token in ("and", "or"):
+            if expect_operand:
+                return False
+            expect_operand = True
+        else:
+            if not expect_operand:
+                return False
+            expect_operand = False
+    return depth == 0 and not expect_operand
+
+
 class UpdateTag:
     """tag 维护工具：为用例自动创建对应的 tag CSV 文件（含表头）"""
 
@@ -162,15 +193,25 @@ class ParseTag:
             return any(token in value for value in raw_values)
 
         def evaluate(tokens):
+            # 先做结构校验：畸形表达式（括号不配对、运算符相邻、缺少操作数）
+            # 在求值阶段会让 apply_operator 无法推进栈指针，旧实现会原地死循环
+            if not _is_well_formed(tokens):
+                return False
+
             stack = []
             operators = []
 
             precedence = {'and': 2, 'or': 1, '(': 0}
 
+            class _InvalidExpression(Exception):
+                pass
+
             def apply_operator():
-                if len(stack) < 2 or not operators:
-                    return
                 op = operators.pop()
+                if len(stack) < 2:
+                    # 结构校验已经拦过，这里只是兜底：必须弹出运算符再退出，
+                    # 否则调用方的 while 条件不变，会无限循环
+                    raise _InvalidExpression
                 right = stack.pop()
                 left = stack.pop()
                 if op == 'and':
@@ -179,37 +220,39 @@ class ParseTag:
                     stack.append(left or right)
 
             i = 0
-            while i < len(tokens):
-                token = tokens[i]
-                if token == '(':
-                    operators.append(token)
-                    i += 1
-                elif token == ')':
-                    while operators and operators[-1] != '(':
-                        apply_operator()
-                    # 防御：表达式括号不匹配（多右括号）时栈已空，无法继续求值
-                    if not operators:
-                        return False
-                    operators.pop()  # 弹出左括号
-                    i += 1
-                elif token in {'and', 'or'}:
-                    while (operators and operators[-1] != '(' and
-                           precedence[operators[-1]] >= precedence[token]):
-                        apply_operator()
-                    operators.append(token)
-                    i += 1
-                else:
-                    # 检查token是否命中标签（ASCII 标签精确、中文标签按包含）
-                    matched = token_match(token)
-                    stack.append(matched)
-                    i += 1
+            try:
+                while i < len(tokens):
+                    token = tokens[i]
+                    if token == '(':
+                        operators.append(token)
+                        i += 1
+                    elif token == ')':
+                        while operators and operators[-1] != '(':
+                            apply_operator()
+                        # 防御：表达式括号不匹配（多右括号）时栈已空，无法继续求值
+                        if not operators:
+                            return False
+                        operators.pop()  # 弹出左括号
+                        i += 1
+                    elif token in {'and', 'or'}:
+                        while (operators and operators[-1] != '(' and
+                               precedence[operators[-1]] >= precedence[token]):
+                            apply_operator()
+                        operators.append(token)
+                        i += 1
+                    else:
+                        # 检查token是否命中标签（ASCII 标签精确、中文标签按包含）
+                        matched = token_match(token)
+                        stack.append(matched)
+                        i += 1
 
-            while operators:
-                # 防御：残留左括号（多左括号）或操作数不足（如 "L1 or"）时
-                # 表达式不完整，直接判定为不匹配，避免死循环
-                if operators[-1] == '(' or len(stack) < 2:
-                    return False
-                apply_operator()
+                while operators:
+                    # 防御：残留左括号（多左括号）时表达式不完整
+                    if operators[-1] == '(':
+                        return False
+                    apply_operator()
+            except _InvalidExpression:
+                return False
 
             return stack[0] if stack else False
 
