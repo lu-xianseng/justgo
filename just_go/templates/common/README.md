@@ -41,7 +41,6 @@ pytest
 
 | 配置项 | 位置 | 说明 |
 | --- | --- | --- |
-| 框架配置覆盖 | 项目根 `config.ini` | 只写要改的项，未写的沿用框架默认；如 `[run] show_browser = False` 改成无头运行 |
 | 被测系统地址 | conftest.py 的 setup_env() | 必改，填入 dev/test/prod 环境地址 |
 | 用例链接前缀 | conftest.py 的 `setup_env(..., case_base_url=...)` | 可选，填入测试管理平台链接前缀 |
 | 录屏开关 | pytest.ini 的 --record | 默认开；删掉该行即关闭 |
@@ -50,6 +49,11 @@ pytest
 | 浏览器类型 | conftest.py 里 config.run.browser_type | chromium/firefox/webkit，默认 chromium |
 | 登录态复用 | conftest.py 里 config.run.storage_state | 登录用例保存 state 文件后跨用例复用，免重复登录 |
 | 慢速/是否显示浏览器 | conftest.py 里 config.run.xxx | 运行时覆盖，优先级高于框架配置文件 |
+
+> **机器相关的路径**（`browser_path` / `allure_path` / `ffmpeg_path`、产物目录名
+> `log_path` / `report_path` / `cache_path`）不能写在 conftest.py 里——它们在框架导入时就
+> 求值成常量，conftest 的覆盖不会重算；这些项要在项目根**自建** `config.ini` 只写要改的项。
+> 正常情况（用 Playwright 自带浏览器、`just-go install` 装的 allure/ffmpeg）无需该文件。
 
 ## 运行产物
 

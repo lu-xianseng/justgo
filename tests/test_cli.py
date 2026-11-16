@@ -150,6 +150,17 @@ def test_cmd_init_creates_images_dir(tmp_path, monkeypatch):
     assert (target / "pages" / "base_page.py").is_file()
 
 
+def test_cmd_init_does_not_generate_config_ini(tmp_path, monkeypatch):
+    """init 不生成 config.ini：常改的项都在 conftest.py，路径类的项按需自建"""
+    monkeypatch.setattr(cli.shutil, "which", lambda name: None)  # 跳过 pipenv
+    target = tmp_path / "proj"
+    assert cli.cmd_init(SimpleNamespace(target=f"{target}[all]")) == 0
+    assert not (target / "config.ini").exists()
+    # conftest 里保留 config.run.* 的覆盖示例
+    conftest = (target / "conftest.py").read_text(encoding="utf-8")
+    assert "config.run.slow_time" in conftest
+
+
 def test_cmd_init_scaffold_collects(tmp_path, monkeypatch):
     """init 生成的骨架必须能被 pytest 收集：CaseControl 要求方法名含用例文件名"""
     import subprocess

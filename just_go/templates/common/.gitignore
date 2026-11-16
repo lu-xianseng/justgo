@@ -8,3 +8,5 @@ cache/
 Pipfile.lock
 log.txt
 state.json
+# 机器相关配置（浏览器/工具路径、产物目录名），按需自建，不提交
+config.ini

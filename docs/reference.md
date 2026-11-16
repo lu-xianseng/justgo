@@ -47,24 +47,35 @@
 
 ## 配置项
 
-### 项目级 `config.ini`（`<项目根>/config.ini`）
+### 项目级 `config.ini`（`<项目根>/config.ini`，可选）
 
-`just-go init` 会生成一份，只写要改的项，没写的沿用框架默认：
+`just-go init` **不会**生成这个文件——绝大多数项目用不上它。需要改下面这几项时再自建，
+只写要改的项，没写的沿用框架默认：
 
 ```ini
 [framework]
+;机器相关的绝对路径（默认用 Playwright 自带浏览器 / 自动查找 allure、ffmpeg）
 ;browser_path =
 ;allure_path =
 ;ffmpeg_path =
+;产物目录名（默认 logs / reports / cache）
+;log_path = logs
+;report_path = reports
+;cache_path = cache
+;报告标题（缺省 = 被测项目名）/ 语言（缺省 zh）
 ;report_name =
 ;report_language = zh
-
-[run]
-;slow_time = 500
-;show_browser = True
-;browser_type = chromium
-;storage_state =
 ```
+
+**为什么这些项不能写在 conftest.py 里**：`log_path` / `report_path` / `cache_path` /
+`allure_path` / `ffmpeg_path` 在 `just_go._internal.settings` **导入时**就被拼成模块级常量
+（`LOG_PATH`、`REPORT_PATH`、`ALLURE_PATH` 等），而项目 `conftest.py` 顶部导入框架时这些
+常量已经算完；之后在 conftest 里赋值 `config.framework.report_path = ...` 只改缓存，常量
+不会重算。只有 `run.*` 与 `framework.browser_path` / `report_name` / `report_language` 是
+用到时才读，因此在 conftest 里赋值有效。
+
+`config.ini` 里的路径都是**机器相关**的，团队里各不相同，因此这个文件适合不提交：
+自建后可加进 `.gitignore`，每台机器放一份自己的。
 
 ### 框架默认（`just_go/configs/config.ini`，装包后不用改）
 
@@ -106,7 +117,6 @@
 demo/
 ├─ conftest.py              # 声明框架插件 + 注入被测地址 + page fixture 包装
 ├─ pytest.ini               # 收集规则 / 录屏 / 重试 / 报告模式
-├─ config.ini               # 项目级配置覆盖
 ├─ Pipfile                  # 项目依赖（just-go、pytest 等）
 ├─ cases/                   # 用例，按模块分子目录
 │  ├─ case_base.py          # 用例基类（开启命名校验）
@@ -129,7 +139,7 @@ demo/
 ```
 demo/
 ├─ conftest.py
-├─ pytest.ini / config.ini / Pipfile
+├─ pytest.ini / Pipfile
 ├─ apis/
 │  ├─ __init__.py           # 统一导出
 │  ├─ base.py               # BaseApi，继承框架 Request

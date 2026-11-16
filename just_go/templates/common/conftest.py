@@ -15,11 +15,18 @@ setup_env({
 }, case_base_url="")  # TODO: 可选，如 https://zentao.example.com/case-view-{id}.html
 
 # 示例：慢速操作等待毫秒数 / 无头模式 / 浏览器类型 / 登录态复用
+# 这些项在用到时才读取，写在这里即时生效（优先级高于框架默认配置）。
 # 需要先 `from just_go.config import config` 再打开下面任意一行
 # config.run.slow_time = 1000
 # config.run.show_browser = False
 # config.run.browser_type = "chromium"   # chromium / firefox / webkit
 # config.run.storage_state = "state.json"  # 复用登录态
+
+# 注意：浏览器/工具路径、产物目录名这几项在框架导入时就被算成常量，写这里不生效。
+# 需要改时在项目根自建 config.ini（只写要改的项）：
+#   [framework]
+#   browser_path = C:\Program Files\Google\Chrome\Application\chrome.exe
+#   log_path = logs
 
 pytest_plugins = ["just_go._internal.plugin"]
 

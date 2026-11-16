@@ -497,7 +497,6 @@ def _build_templates(mode: str) -> tuple:
         ".gitignore": _load_template(os.path.join("common", ".gitignore")),
         "README.md": _load_template(os.path.join("common", "README.md")),
         "Pipfile": _load_template(os.path.join("common", "Pipfile")),
-        "config.ini": _load_template(os.path.join("common", "config.ini")),
     }
     sections = ""
     if mode in ("gui", "all"):

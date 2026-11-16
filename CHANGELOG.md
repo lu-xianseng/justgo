@@ -3,6 +3,16 @@
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 版本号递增规则：修复 `x.y.patch+1`，新功能 `x.minor+1`，不兼容变更 `major+1`。
 
+## [0.3.3] - 2026-11-16
+
+### 变更
+- **`just-go init` 不再生成 `config.ini`**：模板里那份全是注释和空值，没有一行真正生效，只是把「可调项清单」摆给用户看，却与 `conftest.py` 里的 `config.run.*` 示例重复。常改的项（`slow_time` / `show_browser` / `browser_type` / `storage_state` / `browser_path` / 报告标题语言）都写在 `conftest.py` 里即时生效；`log_path` / `report_path` / `cache_path` / `allure_path` / `ffmpeg_path` 在框架导入时已算成常量、conftest 覆盖不生效，需要时在项目根自建 `config.ini` 只写要改的项
+- 模板 `.gitignore` 增加 `config.ini`：自建的这份是机器相关配置（浏览器/工具绝对路径、产物目录名），不应提交
+
+### 文档
+- `docs/reference.md` 的配置章节改为「项目级 `config.ini`（可选）」：列出自建时需要写的项（只含 conftest 改不动的路径项），并说明为什么这些项不能写进 conftest
+- 模板 `README.md` / `conftest.py` 注释同步：区分「conftest 里写即时生效」与「必须自建 config.ini」两类配置
+
 ## [0.3.2] - 2026-11-16
 
 ### 新增
