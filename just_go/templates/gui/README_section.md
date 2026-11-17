@@ -126,15 +126,17 @@ from just_go.asserts import AssertCommon, SyncAssert
 class Asserts(SyncAssert, AssertCommon):
     """项目断言集合：内置断言 + 自定义断言"""
 
-    def assert_text_contains(self, locator, expected):
+    def assert_order_no(self, locator):
+        """业务断言：订单号必须是 12 位数字"""
         actual = self.page.locator(locator).inner_text()
-        assert expected in actual, f"元素文本不含 {expected!r}：{actual!r}"
+        assert re.fullmatch(r"\d{12}", actual.strip()), f"订单号格式不对：{actual!r}"
 ```
 
-- 内置断言（`assert_visible` / `assert_text` / `assert_equal` / `assert_in` / `assert_re_check_equal` / `assert_image` 等）继承 `AssertCommon`、`SyncAssert` 即全部可用；
-- 自定义断言按 `assert_` 前缀写进 `Asserts`，用例里直接 `page.assert_text_contains(...)`；
+- 内置断言（`assert_visible` / `assert_text` / `assert_text_contains` / `assert_attribute` / `assert_class` 等 UI 断言，以及 `assert_equal` / `assert_in` / `assert_re_check_equal` / `assert_image` 等数据断言）继承 `AssertCommon`、`SyncAssert` 即全部可用；
+- 每个 UI 断言都有配套的 `assert_not_xxx`（如 `assert_not_visible` / `assert_not_text_contains`），同样走 Playwright 的自动等待重试，**不要**自己取 `inner_text()` 再比较；
+- 自定义断言按 `assert_` 前缀写进 `Asserts`，用例里直接 `page.assert_order_no(...)`；自定义时请避开内置名字，覆盖后将失去内置的重试与日志行为；
 - 其他命名前缀不会被转发，改用 `page.asserts.xxx(...)` 调用；
-- 异步用例把 `SyncAssert` 换成 `AsyncAssert`。
+- 异步用例把 `SyncAssert` 换成 `AsyncAssert`（方法集合完全一致，需 `await`）。
 
 ### 2. 写用例（cases/）
 

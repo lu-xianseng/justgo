@@ -243,12 +243,17 @@ def page(_pw_page, request):
 
 | UI 断言 | 说明 |
 | --- | --- |
-| `assert_visible(locator)` / `assert_hidden` | 可见 / 隐藏 |
-| `assert_text(locator, expected)` / `assert_text_contains` | 文本相等 / 包含 |
-| `assert_value` / `assert_checked` / `assert_not_checked` | 输入值 / 勾选状态 |
-| `assert_count` / `assert_enabled` / `assert_disabled` | 数量 / 可用 / 禁用 |
+| `assert_visible(locator)` / `assert_hidden` | 可见 / 隐藏（`assert_hidden` 含「不存在」；只要存在但不可见用 `assert_not_visible`） |
+| `assert_attached` / `assert_empty` / `assert_count(locator, n)` | 已挂载 DOM / 内容为空 / 匹配数量 |
+| `assert_text(locator, expected)` / `assert_text_contains` | 文本相等 / 包含（支持正则、列表，可传 `ignore_case` / `use_inner_text`） |
+| `assert_value` / `assert_values` | 输入值 / 多选值列表 |
+| `assert_checked` / `assert_enabled` / `assert_disabled` / `assert_editable` / `assert_focused` | 勾选 / 可用 / 禁用 / 可编辑 / 焦点 |
+| `assert_attribute(locator, name, value)` / `assert_id` / `assert_class` / `assert_class_contains` | 属性 / id / class 完全匹配 / class 包含 |
 | `assert_url(page, expected)` / `assert_title(page, expected)` | 页面 URL / 标题（可直接传 PageExport） |
 | `assert_image("btn")` / `assert_not_image("tip")` | 屏幕找图（需 `just-go[image]`） |
+
+每个 UI 断言都有配套的反向断言 `assert_not_xxx`（如 `assert_not_text_contains` / `assert_not_attribute`），
+走 Playwright 的自动等待重试，不要自己取文本再比较。`assert_not_checked` 等旧名字保持不变。
 
 自定义断言：往 `Asserts` 里加 `assert_xxx` 方法即可；非 `assert_` 前缀用 `page.asserts.xxx(...)` 调用。
 

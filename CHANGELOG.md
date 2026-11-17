@@ -3,6 +3,25 @@
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 版本号递增规则：修复 `x.y.patch+1`，新功能 `x.minor+1`，不兼容变更 `major+1`。
 
+## [0.3.4] - 2026-11-17
+
+### 新增
+- **UI 断言补齐 Playwright 常用能力**：原有 13 个断言偏少，`to_have_class` / `to_have_attribute` 这类高频断言只能自己 `inner_text()` 手写，绕开了自动等待重试。本轮按 P0 补齐 7 个正向断言：
+  - `assert_attribute(locator, name, value=None)`：断言属性值，省略 `value` 时只断言属性存在（`href` / `disabled` / `data-*`）
+  - `assert_class(locator, expected)` / `assert_class_contains(locator, expected)`：class 完全一致 / 包含指定类名
+  - `assert_values(locator, expected)`：多选控件（`multiple select`）的选中值列表
+  - `assert_editable` / `assert_empty` / `assert_attached` / `assert_focused`：可编辑 / 内容为空 / 已挂载 DOM / 获得焦点
+  - `assert_id(locator, expected)`：id 断言
+- **全部 UI 断言自动生成反向断言 `assert_not_xxx`**：此前除 `assert_not_checked` 外一个都没有，「文本不等于」「属性不是 xx」无法用带重试的断言表达。新增 `@negates` 标记 + `@with_negations` 类装饰器，在导入时按正向签名生成反向方法，调用 Playwright 的 `not_to_*`；同步/异步共用同一份生成逻辑
+- **参数透传补齐**：`assert_text` / `assert_text_contains` 支持 `ignore_case` / `use_inner_text`，`assert_url` 支持 `ignore_case`；`assert_text_contains` 的参数名由 `substring` 改为 `expected`，与 Playwright 一致（现在也接受正则与列表）
+
+### 变更
+- `assert_text_contains(locator, substring)` 的第二个位置参数改名为 `expected`，且接受正则 / 列表；按位置传参的老代码不受影响，按关键字 `substring=` 调用的需要改名（框架内无此用法）
+- 项目模板 `pages/asserts/asserts.py` 的自定义断言示例改为 `assert_order_no`：原示例 `assert_text_contains` 会覆盖内置同名断言，导致自定义版（无自动等待）静默取代内置版
+
+### 测试
+- `tests/test_assertion.py` 新增断言覆盖测试：同步/异步方法集合必须一致、每个正向断言都有反向断言、正反签名一致、`@negates` 里的原生断言名在当前 Playwright 版本上真实存在；另有反向分派测试验证真的调用 `not_to_*` 且关键字原样透传（`tests/test_assertion.py` 曾捕获过一个 `not_` 前缀漏写 `to_` 的实现错误）
+
 ## [0.3.3] - 2026-11-16
 
 ### 变更
