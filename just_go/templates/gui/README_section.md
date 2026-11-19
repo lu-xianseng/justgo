@@ -83,8 +83,9 @@ INFO | - [登录页面对象] 登录按钮(login_btn) 点击
 
 要点：
 
-- 自动记日志的动作：`click` `fill` `press` `check` `select_option` `hover` `drag_to` `set_input_files` `wait_for` `screenshot` 等 28 个；`inner_text` `count` `get_attribute` `is_visible` 这类只读取值的方法直通原生 Locator，不记日志
-- 链式定位 `first` `last` `nth` `filter` `locator` `get_by_*` 返回包装后的 Element，日志能力不丢
+- 自动记日志的动作：`click` `fill` `press` `check` `select_option` `hover` `drag_to` `set_input_files` `wait_for` `screenshot` 等 28 个；`inner_text` `count` `get_attribute` `is_visible` 这类只读取值的方法直通原生 Locator，不记日志（IDE 补全和返回类型照样完整）
+- 链式定位 `first` `last` `nth` `filter` `locator` `get_by_*` `visible` `normalize` `describe` 返回包装后的 Element，日志能力不丢（`visible` 是属性，写 `el.visible` 不是 `el.visible()`）
+- iframe：`el.frame_locator("iframe")` / `el.content_frame` 返回 `FrameElement`，只能继续 `locator` / `get_by_*`，不能直接 `.click()`
 - 要原生 Locator（如传给 playwright 的 `expect`）用 `.native`
 - `sensitive=True` 时值显示 `***`；属性名/描述含 `password` `pwd` `token` `secret` `密码` `验证码` 也会自动脱敏
 - 异步用例用 `async_element` 声明，动作需 `await`

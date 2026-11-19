@@ -285,7 +285,9 @@ class LoginPageEle:                # 不需要继承任何基类
 
 - 28 个动作自动记日志：`click` `dblclick` `fill` `type` `press` `check` `select_option` `hover` `drag_to` `set_input_files` `wait_for` `screenshot` 等
 - 只读取值的方法（`inner_text` `count` `get_attribute` `is_visible`）直通原生 Locator，不记日志
-- 链式定位 `first` `last` `nth` `filter` `locator` `get_by_*` 返回包装后的 Element，日志能力不丢
+- IDE 补全覆盖全部原生 `Locator` 方法：`Element` 在类型检查期以 `Locator` 为基类，`inner_text()` / `get_attribute()` / `bounding_box()` 等在链式调用后照样有提示和返回类型（运行时并不继承，仍是 `__getattr__` 转发）
+- 链式定位 `first` `last` `nth` `filter` `locator` `get_by_*` `visible` `normalize` `describe` 返回包装后的 Element，日志能力不丢（`visible` 是属性，写成 `el.visible` 而不是 `el.visible()`）
+- iframe：`el.frame_locator("iframe")` / `el.content_frame` 返回 `FrameElement`，只支持 `locator` / `get_by_*` 继续定位，不能直接 `.click()`——`FrameLocator` 本身没有动作方法
 - 需要原生 Locator（比如传给 `expect`）用 `.native`
 - `sensitive=True` 显示 `***`；属性名或描述含 `password` / `pwd` / `token` / `secret` / `密码` / `验证码` 也会自动脱敏
 

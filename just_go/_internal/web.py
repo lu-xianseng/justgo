@@ -194,8 +194,8 @@ class SyncWebUI:
         return self.page.context.pages
 
     def sleep(self, _time):
-        """等待 N 秒"""
-        logger.info(f"等待{_time}秒")
+        """等待 {{_time}} 秒"""
+        # logger.info(f"等待{_time}秒")
         self.page.wait_for_timeout(int(float(_time) * 1000))
 
     def scroll_to_bottom(self):
@@ -388,8 +388,8 @@ class AsyncWebUI:
         return self.page.context.pages
 
     async def sleep(self, _time):
-        """等待 N 秒"""
-        logger.info(f"等待{_time}秒")
+        """等待 {{_time}} 秒"""
+        # logger.info(f"等待{_time}秒")
         await self.page.wait_for_timeout(int(float(_time) * 1000))
 
     async def scroll_to_bottom(self):

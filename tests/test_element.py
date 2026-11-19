@@ -57,6 +57,56 @@ class FakeLocator:
     def inner_text(self, **kwargs):
         return "文本内容"
 
+    @property
+    def visible(self):
+        return FakeLocator(f"{self.selector} >> visible", self.calls)
+
+    def normalize(self):
+        return FakeLocator(f"{self.selector} >> normalize", self.calls)
+
+    def describe(self, description):
+        return FakeLocator(f"{self.selector} >> {description}", self.calls)
+
+    @property
+    def content_frame(self):
+        return FakeFrameLocator(f"{self.selector} >> content_frame", self.calls)
+
+    def frame_locator(self, selector):
+        return FakeFrameLocator(f"{self.selector} >> {selector}", self.calls)
+
+
+class FakeFrameLocator:
+    """FrameLocator 替身：只有子定位，没有 click / inner_text"""
+
+    def __init__(self, selector, calls):
+        self.selector = selector
+        self.calls = calls
+
+    @property
+    def owner(self):
+        """原生 FrameLocator.owner：指向 iframe 元素的 Locator"""
+        return FakeLocator(f"{self.selector} >> owner", self.calls)
+
+    def locator(self, child):
+        return FakeLocator(f"{self.selector} >> {child}", self.calls)
+
+    def get_by_role(self, role, **kwargs):
+        return FakeLocator(f"{self.selector} >> role={role}", self.calls)
+
+    def nth(self, index):
+        return FakeFrameLocator(f"{self.selector} >> nth({index})", self.calls)
+
+    def frame_locator(self, selector):
+        return FakeFrameLocator(f"{self.selector} >> {selector}", self.calls)
+
+    @property
+    def first(self):
+        return FakeFrameLocator(f"{self.selector} >> first", self.calls)
+
+    @property
+    def last(self):
+        return FakeFrameLocator(f"{self.selector} >> last", self.calls)
+
 
 class FakeContext:
     pages = []
@@ -80,6 +130,7 @@ class DemoPage(SyncWebUI):
     remark = element("#remark", "备注输入框")
     login_btn = element("button:has-text('登录')", "登录按钮")
     upload_input = element("input[type=file]", "上传控件")
+    iframe = element("iframe#main", "内嵌框架")
 
 
 @pytest.fixture
@@ -218,6 +269,179 @@ class TestChain:
         for name in _CHILD_METHODS:
             assert callable(getattr(Element, name))
             assert callable(getattr(AsyncElement, name))
+
+
+class TestVisibleNormalizeDescribe:
+    """visible / normalize / describe 不回包装就会静默丢日志（不报错，但报告里少一步）"""
+
+    def test_visible_returns_element(self, demo_page):
+        el = demo_page.account.visible
+        assert isinstance(el, Element)
+        assert "visible" in el.native.selector
+
+    def test_visible_is_property_not_method(self, demo_page):
+        """原生 Locator.visible 是属性；写成 el.visible() 应报 TypeError"""
+        with pytest.raises(TypeError):
+            demo_page.account.visible()
+
+    def test_visible_action_still_logs(self, demo_page, log_messages):
+        demo_page.login_btn.visible.click()
+        assert any("登录按钮" in m and "点击" in m for m in log_messages)
+
+    def test_normalize_returns_element(self, demo_page):
+        el = demo_page.account.normalize()
+        assert isinstance(el, Element)
+        assert "normalize" in el.native.selector
+
+    def test_normalize_action_still_logs(self, demo_page, log_messages):
+        demo_page.login_btn.normalize().click()
+        assert any("登录按钮" in m and "点击" in m for m in log_messages)
+
+    def test_describe_returns_element(self, demo_page):
+        el = demo_page.account.describe("订阅按钮")
+        assert isinstance(el, Element)
+        assert "订阅按钮" in el.native.selector
+
+    def test_describe_action_still_logs(self, demo_page, log_messages):
+        demo_page.login_btn.describe("订阅按钮").click()
+        assert any("登录按钮" in m and "点击" in m for m in log_messages)
+
+    def test_async_normalize_is_coroutine(self):
+        """原生 AsyncLocator.normalize 是协程，异步版必须 await 后再包装"""
+        import inspect as _inspect
+
+        assert _inspect.iscoroutinefunction(AsyncElement.normalize)
+
+    def test_async_describe_is_not_coroutine(self):
+        """原生 AsyncLocator.describe 不是协程（与 normalize 不同）"""
+        import inspect as _inspect
+
+        assert not _inspect.iscoroutinefunction(AsyncElement.describe)
+
+
+class TestFrameElement:
+    """iframe：FrameLocator 没有 click 那套动作，必须单独包装而不是塞进 Element"""
+
+    def test_frame_locator_returns_frame_element(self, demo_page):
+        from just_go._internal.element import FrameElement
+
+        frame = demo_page.iframe.frame_locator("iframe#inner")
+        assert isinstance(frame, FrameElement)
+        assert not isinstance(frame, Element)
+
+    def test_content_frame_returns_frame_element(self, demo_page):
+        from just_go._internal.element import FrameElement
+
+        assert isinstance(demo_page.iframe.content_frame, FrameElement)
+
+    def test_frame_child_locator_returns_element(self, demo_page):
+        frame = demo_page.iframe.frame_locator("iframe#inner")
+        el = frame.locator("#child")
+        assert isinstance(el, Element)
+        assert "#child" in el.native.selector
+
+    def test_frame_child_action_logs(self, demo_page, log_messages):
+        frame = demo_page.iframe.frame_locator("iframe#inner")
+        frame.get_by_role("button").click()
+        assert any("内嵌框架" in m and "点击" in m for m in log_messages)
+
+    def test_frame_action_gives_clear_error(self, demo_page):
+        """iframe 上直接调动作要给可操作的报错，而不是「版本不支持」"""
+        frame = demo_page.iframe.frame_locator("iframe#inner")
+        with pytest.raises(AttributeError) as exc:
+            frame.click()
+        msg = str(exc.value)
+        assert "没有 click" in msg
+        assert "frame.locator" in msg
+        assert "版本不支持" not in msg
+
+    def test_nested_frame_stays_frame_element(self, demo_page):
+        from just_go._internal.element import FrameElement
+
+        frame = demo_page.iframe.frame_locator("iframe#inner")
+        assert isinstance(frame.nth(0), FrameElement)
+        assert isinstance(frame.first, FrameElement)
+        assert isinstance(frame.frame_locator("iframe#deep"), FrameElement)
+
+    def test_assert_accepts_frame_element(self, demo_page):
+        """assert_xxx(frame) 要转成 iframe 自身的 Locator，原生 expect 不认 FrameLocator"""
+        from just_go._internal.element import FrameElement
+
+        frame = demo_page.iframe.frame_locator("iframe#inner")
+        unwrapped = _to_locator(frame)
+        assert not isinstance(unwrapped, FrameElement)
+        assert isinstance(unwrapped, FakeLocator)  # 替身的 .owner
+
+
+class TestGetattrRecursion:
+    """__getattr__ 里直接写 self.native：native 求值失败会再次触发 __getattr__ 变成死循环"""
+
+    def test_element_missing_owner_reports_real_error(self):
+        class BadOwner:
+            pass
+
+        el = Element(BadOwner(), selector="#x", desc="x")
+        with pytest.raises(AttributeError) as exc:
+            el.no_such_member
+        assert "RecursionError" not in type(exc.value).__name__
+        assert "page" in str(exc.value)
+
+    def test_frame_element_missing_owner_reports_real_error(self):
+        """native 求值失败不能翻译成 iframe 提示（会掩盖真实原因）"""
+        from just_go._internal.element import FrameElement
+
+        class BadOwner:
+            pass
+
+        frame = FrameElement(BadOwner(), selector="#x", desc="x")
+        with pytest.raises(AttributeError) as exc:
+            frame.click
+        msg = str(exc.value)
+        assert "page" in msg
+        assert "只能继续定位子元素" not in msg
+
+
+class TestAsyncRunAllure:
+    def test_async_run_uses_sync_with(self):
+        """allure_commons 的 StepContext 不支持 async with，写了会让异步动作直接 TypeError"""
+        import ast
+        import inspect
+        import textwrap
+
+        from just_go._internal.element import AsyncElement as cls
+
+        src = textwrap.dedent(inspect.getsource(cls._run))
+        tree = ast.parse(src)
+        async_withs = [n for n in ast.walk(tree) if isinstance(n, ast.AsyncWith)]
+        assert not async_withs, "AsyncElement._run 不能用 async with allure.step"
+
+
+class TestStaticTypingSurface:
+    """静态声明的回归护栏：Element 只在 TYPE_CHECKING 期继承 Locator"""
+
+    def test_runtime_mro_stays_object(self):
+        """运行时不能真的继承 Locator：否则会带上 Locator.__init__、事件系统等状态"""
+        assert Element.__mro__ == (Element, object)
+        assert AsyncElement.__mro__ == (AsyncElement, object)
+
+    def test_type_checking_block_covers_all_child_methods(self):
+        """_CHILD_METHODS 里每个名字都要有静态声明，否则 IDE 里链式调用会丢返回类型"""
+        import ast
+        import inspect
+
+        from just_go._internal import element as module
+
+        tree = ast.parse(inspect.getsource(module))
+        declared = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef) and node.name in ("Element", "AsyncElement"):
+                for item in node.body:
+                    if isinstance(item, ast.If):  # if TYPE_CHECKING: 块
+                        for sub in item.body:
+                            if isinstance(sub, ast.FunctionDef):
+                                declared.add(sub.name)
+        missing = set(module._CHILD_METHODS) - declared
+        assert not missing, f"缺少静态声明: {sorted(missing)}"
 
 
 class TestArgumentUnwrap:

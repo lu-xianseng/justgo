@@ -3,6 +3,26 @@
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 版本号递增规则：修复 `x.y.patch+1`，新功能 `x.minor+1`，不兼容变更 `major+1`。
 
+## [0.3.5] - 2026-11-19
+
+### 变更
+- **`Element` / `AsyncElement` 的 IDE 补全覆盖全部原生 `Locator` 方法**：此前只有 28 个动作方法和 14 个链式方法有静态声明，`inner_text()` / `text_content()` / `get_attribute()` / `count()` / `is_visible()` / `bounding_box()` 这些取值方法靠 `__getattr__` 才能用，IDE 里链式调用（`el.first.`）之后没有任何提示。现在两个类在 `TYPE_CHECKING` 期以原生 `Locator` / `AsyncLocator` 为基类，所有成员及其签名、返回类型都由 Playwright 提供，不再手工维护一份容易和版本脱节的声明
+- 运行时行为不变：仍不继承 `Locator`（`__mro__` 里只有 `object`），转发仍走 `__getattr__`，`.native` 照旧返回原生定位对象；动作白名单、日志、脱敏、allure 步骤全部不变
+- 链式方法的静态返回类型仍收窄为 `Element` / `AsyncElement`（基类声明的是 `Locator`）
+- **`visible` / `normalize` / `describe` 纳入包装**：此前它们走 `__getattr__` 直通原生 `Locator`，能跑但**静默丢日志与 allure 步骤**（不报错，只是报告里少一步）。现在返回 `Element` / `AsyncElement`，日志能力与其他链式定位一致。注意 `visible` 是属性不是方法（与 `is_visible()` 返回布尔不同），写成 `el.visible()` 会 `TypeError`
+- **`frame_locator` / `content_frame` 改用新的 `FrameElement` / `AsyncFrameElement`**：原生返回 `FrameLocator`，此前被塞进 `Element`，导致 `iframe.click()` 这类调用报「当前 Playwright 版本不支持 Locator.click()」——版本明明支持，只是 `FrameLocator` 本身没有动作方法，排查方向被带偏。新包装只保留 `locator` / `get_by_*` / `first` / `last` / `nth` / `frame_locator`，子定位结果仍是 `Element`，日志不丢；在 iframe 上调用动作方法会给出可直接照做的提示（`iframe.locator("...").click()`）
+- `FrameElement` / `AsyncFrameElement` 从 `just_go.web` 导出，页面对象里可直接用作类型注解；传给 `assert_xxx(...)` 时会转成指向 iframe 元素的 `Locator`（Playwright 的 `expect()` 不认 `FrameLocator`）
+- `sleep()` 的日志改由 `@log` 装饰器按 docstring 生成：docstring 从静态的「等待 N 秒」改为占位式「等待 {{_time}} 秒」，日志里能看到实际秒数；原先手写的那行 `logger.info` 会与装饰器重复输出，已移除
+
+### 修复
+- **`AsyncElement` 的所有动作方法一调用就崩溃**：`_run` 里写的 `async with allure.step(...)`，而 `allure_commons` 的 `StepContext` 只实现同步上下文协议，没有 `__aenter__` / `__aexit__`，直接 `TypeError`。改为同步 `with` 包住 `await`（同步 `with` 块内 `await` 是合法的，进入/退出时机等价）
+- **`__getattr__` 在原生对象不可用时无限递归**：`__getattr__` 里写 `self.native`，当 `native` 求值本身抛 `AttributeError`（如 owner 没有 `page`）时会再次触发 `__getattr__`，把真实错误吞成 `RecursionError`。四个类改用 `object.__getattribute__(self, "native")` 绕过钩子，真实原因能正常抛出
+- **iframe 的提示文案会掩盖真实错误**：`FrameElement.__getattr__` 原先把所有 `AttributeError` 都翻译成「FrameLocator 只能继续定位子元素」，`native` 求值失败也被误译。现在只翻译「原生对象确实没有该成员」这一种情况
+- `AsyncElement` 的 `TYPE_CHECKING` 声明里，`filter` / `nth` / `locator` / `get_by_*` / `and_` / `or_` / `within` 被错标成 `async def`，实际运行时它们和同步版一样是普通方法，静态检查会误报「未 await」。`normalize` 反过来——原生 `AsyncLocator.normalize` 确实是协程，异步版必须 `await` 后才能拿到元素
+
+### 测试
+- `tests/test_element.py` 新增：`visible` / `normalize` / `describe` 的包装与日志、`visible` 属性不可调用、`FrameElement` 的子定位与错误文案、嵌套 iframe 保持 `FrameElement`、`assert_xxx` 接受 `FrameElement`、原生对象不可用时不递归且不吞错误、异步 `normalize` 是协程而 `describe` 不是、`_run` 里禁止出现 `async with`（AST 校验，防止崩溃回归）
+
 ## [0.3.4] - 2026-11-17
 
 ### 新增

@@ -24,7 +24,18 @@ from just_go._internal.logger import logger
 
 
 def _to_locator(obj):
-    """Element / AsyncElement 还原成原生 Locator，selector 字符串或 Page 原样返回"""
+    """Element / AsyncElement 还原成原生 Locator，selector 字符串或 Page 原样返回
+
+    FrameElement / AsyncFrameElement 的原生对象是 FrameLocator，Playwright 的 expect()
+    不认（抛 "Unsupported type"），这里转成指向 iframe 元素的 Locator —— 对 iframe
+    本身断言可见/挂载是常见需求，比让用户自己 .native 好用。
+    """
+    from just_go._internal.element import AsyncFrameElement, FrameElement
+
+    if isinstance(obj, (FrameElement, AsyncFrameElement)):
+        # FrameLocator.owner 是指向 iframe 元素的 Locator；个别版本/替身可能没有，
+        # 拿不到时退回 FrameLocator 本身（至少报错信息不会从类型错误变成 AttributeError）
+        return getattr(obj.native, "owner", None) or obj.native
     if isinstance(obj, (Element, AsyncElement)):
         return obj.native
     return obj

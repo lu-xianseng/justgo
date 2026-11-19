@@ -27,7 +27,28 @@ import allure
 
 from just_go._internal.logger import logger
 
-__all__ = ["Element", "AsyncElement", "element", "async_element"]
+__all__ = [
+    "Element",
+    "AsyncElement",
+    "FrameElement",
+    "AsyncFrameElement",
+    "element",
+    "async_element",
+]
+
+# 类型检查期让 Element 以原生 Locator 为基类：Locator 的 70+ 个成员（inner_text /
+# count / get_attribute / is_visible ...）由此天然进入 IDE 补全与类型检查，签名和
+# 返回类型都是 Playwright 的原文，不用手抄一份会随版本漂移的声明。
+# 运行时不继承（保持 object）：Element 只是在 __getattr__ 里转发，真正的定位对象
+# 由 .native 提供；继承真类反而会触发 Locator.__init__ 一类的问题。
+if TYPE_CHECKING:  # pragma: no cover
+    from playwright.async_api import FrameLocator as _AsyncFrameLocatorBase
+    from playwright.async_api import Locator as _AsyncLocatorBase
+    from playwright.sync_api import FrameLocator as _SyncFrameLocatorBase
+    from playwright.sync_api import Locator as _SyncLocatorBase
+else:
+    _SyncLocatorBase = _AsyncLocatorBase = object
+    _SyncFrameLocatorBase = _AsyncFrameLocatorBase = object
 
 # 单个值在日志里的最大长度，避免大字典/长文本把日志刷屏
 _MAX_VALUE_LEN = 60
@@ -74,6 +95,7 @@ _ACTION_LABELS = {
 }
 
 # 链式定位：调用后返回新的 Locator，需要继续包装
+# 注意 visible 是属性不是方法（见 Element.visible），不在这里
 _CHILD_METHODS = (
     "filter",
     "nth",
@@ -85,11 +107,34 @@ _CHILD_METHODS = (
     "get_by_test_id",
     "get_by_text",
     "get_by_title",
-    "frame_locator",
+    "normalize",
+    "describe",
     "and_",
     "or_",
     "within",
 )
+
+# FrameLocator 的子定位：locator / get_by_* 返回 Locator，要包装成 Element
+_FRAME_LOCATOR_METHODS = (
+    "locator",
+    "get_by_alt_text",
+    "get_by_label",
+    "get_by_placeholder",
+    "get_by_role",
+    "get_by_test_id",
+    "get_by_text",
+    "get_by_title",
+)
+
+# FrameLocator 上面这些方法返回的还是 FrameLocator（嵌套 iframe），继续包成 FrameElement
+_FRAME_FRAME_METHODS = (
+    "nth",
+    "frame_locator",
+)
+
+# 异步 Locator 上这些链式方法本身是协程，AsyncElement 版本必须 await 后再包装。
+# describe / visible / content_frame 不是协程，filter / nth / locator / get_by_* 也不是。
+_ASYNC_AWAIT_CHILD = ("normalize",)
 
 # 名字命中这些词的元素，值在日志里自动脱敏
 _SENSITIVE_KEYS = (
@@ -110,6 +155,21 @@ def _page_name(owner):
     cls = type(owner)
     doc = (cls.__doc__ or "").strip()
     return doc.splitlines()[0].strip() if doc else cls.__name__
+
+
+def _frame_action_hint(name, desc):
+    """iframe 上调用了 FrameLocator 没有的成员时的报错文案
+
+    Playwright 的 FrameLocator 只有子定位能力，没有 click / inner_text / visible 这些。
+    原样转发会报 "FrameLocator object has no attribute 'click'"，容易被误读成
+    「Playwright 版本不支持」，这里直接说清该怎么写。
+    文案不区分属性/方法（click 与 visible 都走这里），统一说「没有这个成员」。
+    """
+    return (
+        f"iframe「{desc}」没有 {name}：FrameLocator 只能继续定位子元素。\n"
+        f"  正确写法：frame.locator(\"选择器\").{name}  或  "
+        f"frame.get_by_role(\"...\").{name}"
+    )
 
 
 def _unwrap_args(args, kwargs):
@@ -176,7 +236,7 @@ def _fmt_raw(raw):
     return text if text.startswith("[") else f'"{text}"'
 
 
-class Element:
+class Element(_SyncLocatorBase):
     """同步元素包装：动作记日志 + allure 步骤，其余方法直通原生 Locator。
 
     - 原生 Locator 用 .native 取，可直接传给 playwright 的 expect()
@@ -277,60 +337,75 @@ class Element:
         return self._derive(self.native.last)
 
     @property
-    def all(self):
+    def visible(self) -> "Element":  # pyright: ignore[reportIncompatibleMethodOverride]
+        """只要可见的那些（原生 Locator.visible 是属性，不是方法）
+
+        区别于 is_visible()：那个返回布尔，这个继续返回元素，可接着点击。
+        """
+        return self._derive(self.native.visible)
+
+    @property
+    def content_frame(self) -> "FrameElement":  # pyright: ignore[reportIncompatibleMethodOverride]
+        """iframe 元素的文档内容（原生返回 FrameLocator，这里包成 FrameElement）"""
+        return FrameElement(
+            self._owner,
+            selector=self._selector,
+            desc=self._desc,
+            attr=self._attr,
+            sensitive=self._sensitive,
+            frame=self.native.content_frame,
+        )
+
+    @property
+    def all(self):  # pyright: ignore[reportIncompatibleMethodOverride]
         """匹配结果的全部元素（list[Element]）"""
         return [self.nth(i) for i in range(self.native.count())]
+
+    def frame_locator(self, selector: str) -> "FrameElement":  # type: ignore[override]  # pyright: ignore[reportIncompatibleMethodOverride]
+        """进入子 iframe，返回 FrameElement（原生返回 FrameLocator）
+
+        iframe 上不能用 Locator.click 那套动作，只保留 locator / get_by_* 这类子定位，
+        返回的仍是包装对象，日志与 allure 步骤不丢。
+        """
+        return FrameElement(
+            self._owner,
+            selector=self._selector,
+            desc=self._desc,
+            attr=self._attr,
+            sensitive=self._sensitive,
+            frame=self.native.frame_locator(selector),
+        )
 
     def __getattr__(self, name):
         """白名单外的成员直通原生 Locator"""
         if name.startswith("_"):
             raise AttributeError(name)
-        return getattr(self.native, name)
+        # 用 object.__getattribute__ 直取 native：常规的 self.native 在 native 求值
+        # 失败（如 owner 没有 page）时会抛 AttributeError，从而再次触发 __getattr__，
+        # 把真实错误吞成 RecursionError
+        native = object.__getattribute__(self, "native")
+        return getattr(native, name)
 
     if TYPE_CHECKING:  # pragma: no cover
-        # 动作方法与链式定位由文件末尾的 setattr 按 _ACTION_LABELS / _CHILD_METHODS
-        # 注入，运行时类体里并不存在；这份声明只给 IDE 补全和类型检查用，不参与运行。
+        # 动作方法（click / fill / ...）的签名直接来自原生 Locator 基类，不必再声明。
+        # 下面这些链式方法体由文件末尾的 setattr 按 _CHILD_METHODS 注入，运行时类体里
+        # 并不存在；声明它们是为了把返回类型收窄成 Element（基类声明返回 Locator）。
+        # 形参用 *args/**kwargs 是为了不跟基类签名逐一较劲：参数校验交给 Playwright。
         # 新增白名单条目时同步补一行，否则补全会缺。
-        def click(self, *args: Any, **kwargs: Any) -> Any: ...
-        def dblclick(self, *args: Any, **kwargs: Any) -> Any: ...
-        def tap(self, *args: Any, **kwargs: Any) -> Any: ...
-        def fill(self, value: str, *args: Any, **kwargs: Any) -> Any: ...
-        def clear(self, *args: Any, **kwargs: Any) -> Any: ...
-        def type(self, text: str, *args: Any, **kwargs: Any) -> Any: ...
-        def press(self, key: str, *args: Any, **kwargs: Any) -> Any: ...
-        def press_sequentially(self, text: str, *args: Any, **kwargs: Any) -> Any: ...
-        def select_text(self, *args: Any, **kwargs: Any) -> Any: ...
-        def check(self, *args: Any, **kwargs: Any) -> Any: ...
-        def uncheck(self, *args: Any, **kwargs: Any) -> Any: ...
-        def set_checked(self, checked: bool, *args: Any, **kwargs: Any) -> Any: ...
-        def select_option(self, *args: Any, **kwargs: Any) -> Any: ...
-        def hover(self, *args: Any, **kwargs: Any) -> Any: ...
-        def focus(self, *args: Any, **kwargs: Any) -> Any: ...
-        def blur(self, *args: Any, **kwargs: Any) -> Any: ...
-        def set_input_files(self, files: Any, *args: Any, **kwargs: Any) -> Any: ...
-        def drop(self, *args: Any, **kwargs: Any) -> Any: ...
-        def drag_to(self, target: Any, *args: Any, **kwargs: Any) -> Any: ...
-        def scroll_into_view_if_needed(self, *args: Any, **kwargs: Any) -> Any: ...
-        def wait_for(self, *args: Any, **kwargs: Any) -> Any: ...
-        def dispatch_event(self, type: str, *args: Any, **kwargs: Any) -> Any: ...
-        def evaluate(self, expression: str, *args: Any, **kwargs: Any) -> Any: ...
-        def evaluate_all(self, expression: str, *args: Any, **kwargs: Any) -> Any: ...
-        def evaluate_handle(self, expression: str, *args: Any, **kwargs: Any) -> Any: ...
-        def screenshot(self, *args: Any, **kwargs: Any) -> Any: ...
-        def highlight(self, *args: Any, **kwargs: Any) -> Any: ...
-        def hide_highlight(self, *args: Any, **kwargs: Any) -> Any: ...
-
         def filter(self, *args: Any, **kwargs: Any) -> "Element": ...
-        def nth(self, index: int, *args: Any, **kwargs: Any) -> "Element": ...
-        def locator(self, selector: str, *args: Any, **kwargs: Any) -> "Element": ...
-        def get_by_alt_text(self, text: Any, *args: Any, **kwargs: Any) -> "Element": ...
-        def get_by_label(self, text: Any, *args: Any, **kwargs: Any) -> "Element": ...
-        def get_by_placeholder(self, text: Any, *args: Any, **kwargs: Any) -> "Element": ...
-        def get_by_role(self, role: Any, *args: Any, **kwargs: Any) -> "Element": ...
-        def get_by_test_id(self, test_id: Any, *args: Any, **kwargs: Any) -> "Element": ...
-        def get_by_text(self, text: Any, *args: Any, **kwargs: Any) -> "Element": ...
-        def get_by_title(self, text: Any, *args: Any, **kwargs: Any) -> "Element": ...
-        def frame_locator(self, selector: str, *args: Any, **kwargs: Any) -> "Element": ...
+        def nth(self, *args: Any, **kwargs: Any) -> "Element": ...
+        def locator(self, *args: Any, **kwargs: Any) -> "Element": ...
+        def get_by_alt_text(self, *args: Any, **kwargs: Any) -> "Element": ...
+        def get_by_label(self, *args: Any, **kwargs: Any) -> "Element": ...
+        def get_by_placeholder(self, *args: Any, **kwargs: Any) -> "Element": ...
+        def get_by_role(self, *args: Any, **kwargs: Any) -> "Element": ...
+        def get_by_test_id(self, *args: Any, **kwargs: Any) -> "Element": ...
+        def get_by_text(self, *args: Any, **kwargs: Any) -> "Element": ...
+        def get_by_title(self, *args: Any, **kwargs: Any) -> "Element": ...
+        def normalize(self, *args: Any, **kwargs: Any) -> "Element": ...
+        def describe(self, *args: Any, **kwargs: Any) -> "Element": ...
+        # frame_locator / visible / content_frame 有真实方法体（返回包装类型），
+        # 不在这里重复声明：同名声明会被当成条件定义，要求签名完全一致
         def and_(self, *args: Any, **kwargs: Any) -> "Element": ...
         def or_(self, *args: Any, **kwargs: Any) -> "Element": ...
         def within(self, *args: Any, **kwargs: Any) -> "Element": ...
@@ -360,7 +435,7 @@ def _make_child(name):
     return child
 
 
-class AsyncElement:
+class AsyncElement(_AsyncLocatorBase):
     """异步元素包装：动作方法需 await，日志与 allure 步骤行为同 Element。"""
 
     def __init__(
@@ -431,7 +506,10 @@ class AsyncElement:
         args, kwargs = _unwrap_args(args, kwargs)
         detail = self._detail(label, args, kwargs, has_value)
         logger.info(f"[{_page_name(self._owner)}] {self._desc} {detail}")
-        async with allure.step(f"{self._desc} {detail}"):
+        # allure_commons 的 StepContext 只实现了同步上下文协议（__enter__/__exit__），
+        # 写 `async with` 会直接 TypeError：所有异步元素动作都跑不起来。
+        # 同步 with 里 await 是合法的，步骤的进入/退出时机与异步版本等价。
+        with allure.step(f"{self._desc} {detail}"):
             method = getattr(self.native, name, None)
             if method is None:
                 raise AttributeError(f"当前 Playwright 版本不支持 Locator.{name}()")
@@ -447,7 +525,27 @@ class AsyncElement:
         """匹配结果中的最后一个"""
         return self._derive(self.native.last)
 
-    async def all(self):
+    @property
+    def visible(self) -> "AsyncElement":  # pyright: ignore[reportIncompatibleMethodOverride]
+        """只要可见的那些（原生 Locator.visible 是属性，不是方法）
+
+        区别于 is_visible()：那个要 await 且返回布尔，这个继续返回元素，可接着点击。
+        """
+        return self._derive(self.native.visible)
+
+    @property
+    def content_frame(self) -> "AsyncFrameElement":  # pyright: ignore[reportIncompatibleMethodOverride]
+        """iframe 元素的文档内容（原生返回 FrameLocator，这里包成 AsyncFrameElement）"""
+        return AsyncFrameElement(
+            self._owner,
+            selector=self._selector,
+            desc=self._desc,
+            attr=self._attr,
+            sensitive=self._sensitive,
+            frame=self.native.content_frame,
+        )
+
+    async def all(self):  # pyright: ignore[reportIncompatibleMethodOverride]
         """匹配结果的全部元素（list[AsyncElement]），需 await
 
         与同步 Element.all 对齐：旧实现 AsyncElement 缺这个方法，
@@ -456,57 +554,48 @@ class AsyncElement:
         count = await self.native.count()
         return [self.nth(i) for i in range(count)]
 
+    def frame_locator(self, selector: str) -> "AsyncFrameElement":  # type: ignore[override]  # pyright: ignore[reportIncompatibleMethodOverride]
+        """进入子 iframe，返回 AsyncFrameElement（原生返回 AsyncFrameLocator）"""
+        return AsyncFrameElement(
+            self._owner,
+            selector=self._selector,
+            desc=self._desc,
+            attr=self._attr,
+            sensitive=self._sensitive,
+            frame=self.native.frame_locator(selector),
+        )
+
     def __getattr__(self, name):
         """白名单外的成员直通原生 AsyncLocator"""
         if name.startswith("_"):
             raise AttributeError(name)
-        return getattr(self.native, name)
+        # 同 Element：绕过 __getattr__ 钩子取 native，否则求值失败会变成 RecursionError
+        native = object.__getattribute__(self, "native")
+        return getattr(native, name)
 
     if TYPE_CHECKING:  # pragma: no cover
-        # 与 Element 同理：方法体由 setattr 注入，这里只声明给 IDE 用。
-        async def click(self, *args: Any, **kwargs: Any) -> Any: ...
-        async def dblclick(self, *args: Any, **kwargs: Any) -> Any: ...
-        async def tap(self, *args: Any, **kwargs: Any) -> Any: ...
-        async def fill(self, value: str, *args: Any, **kwargs: Any) -> Any: ...
-        async def clear(self, *args: Any, **kwargs: Any) -> Any: ...
-        async def type(self, text: str, *args: Any, **kwargs: Any) -> Any: ...
-        async def press(self, key: str, *args: Any, **kwargs: Any) -> Any: ...
-        async def press_sequentially(self, text: str, *args: Any, **kwargs: Any) -> Any: ...
-        async def select_text(self, *args: Any, **kwargs: Any) -> Any: ...
-        async def check(self, *args: Any, **kwargs: Any) -> Any: ...
-        async def uncheck(self, *args: Any, **kwargs: Any) -> Any: ...
-        async def set_checked(self, checked: bool, *args: Any, **kwargs: Any) -> Any: ...
-        async def select_option(self, *args: Any, **kwargs: Any) -> Any: ...
-        async def hover(self, *args: Any, **kwargs: Any) -> Any: ...
-        async def focus(self, *args: Any, **kwargs: Any) -> Any: ...
-        async def blur(self, *args: Any, **kwargs: Any) -> Any: ...
-        async def set_input_files(self, files: Any, *args: Any, **kwargs: Any) -> Any: ...
-        async def drop(self, *args: Any, **kwargs: Any) -> Any: ...
-        async def drag_to(self, target: Any, *args: Any, **kwargs: Any) -> Any: ...
-        async def scroll_into_view_if_needed(self, *args: Any, **kwargs: Any) -> Any: ...
-        async def wait_for(self, *args: Any, **kwargs: Any) -> Any: ...
-        async def dispatch_event(self, type: str, *args: Any, **kwargs: Any) -> Any: ...
-        async def evaluate(self, expression: str, *args: Any, **kwargs: Any) -> Any: ...
-        async def evaluate_all(self, expression: str, *args: Any, **kwargs: Any) -> Any: ...
-        async def evaluate_handle(self, expression: str, *args: Any, **kwargs: Any) -> Any: ...
-        async def screenshot(self, *args: Any, **kwargs: Any) -> Any: ...
-        async def highlight(self, *args: Any, **kwargs: Any) -> Any: ...
-        async def hide_highlight(self, *args: Any, **kwargs: Any) -> Any: ...
-
-        async def filter(self, *args: Any, **kwargs: Any) -> "AsyncElement": ...
-        async def nth(self, index: int, *args: Any, **kwargs: Any) -> "AsyncElement": ...
-        async def locator(self, selector: str, *args: Any, **kwargs: Any) -> "AsyncElement": ...
-        async def get_by_alt_text(self, text: Any, *args: Any, **kwargs: Any) -> "AsyncElement": ...
-        async def get_by_label(self, text: Any, *args: Any, **kwargs: Any) -> "AsyncElement": ...
-        async def get_by_placeholder(self, text: Any, *args: Any, **kwargs: Any) -> "AsyncElement": ...
-        async def get_by_role(self, role: Any, *args: Any, **kwargs: Any) -> "AsyncElement": ...
-        async def get_by_test_id(self, test_id: Any, *args: Any, **kwargs: Any) -> "AsyncElement": ...
-        async def get_by_text(self, text: Any, *args: Any, **kwargs: Any) -> "AsyncElement": ...
-        async def get_by_title(self, text: Any, *args: Any, **kwargs: Any) -> "AsyncElement": ...
-        async def frame_locator(self, selector: str, *args: Any, **kwargs: Any) -> "AsyncElement": ...
-        async def and_(self, *args: Any, **kwargs: Any) -> "AsyncElement": ...
-        async def or_(self, *args: Any, **kwargs: Any) -> "AsyncElement": ...
-        async def within(self, *args: Any, **kwargs: Any) -> "AsyncElement": ...
+        # 与 Element 同理：动作方法的签名来自 AsyncLocator 基类。
+        # 注意链式定位在 async 版里仍是同步方法（返回 AsyncElement），不要写成 async def；
+        # 只有 all 是协程，因为要先 await native.count()。
+        def filter(self, *args: Any, **kwargs: Any) -> "AsyncElement": ...
+        def nth(self, *args: Any, **kwargs: Any) -> "AsyncElement": ...
+        def locator(self, *args: Any, **kwargs: Any) -> "AsyncElement": ...
+        def get_by_alt_text(self, *args: Any, **kwargs: Any) -> "AsyncElement": ...
+        def get_by_label(self, *args: Any, **kwargs: Any) -> "AsyncElement": ...
+        def get_by_placeholder(self, *args: Any, **kwargs: Any) -> "AsyncElement": ...
+        def get_by_role(self, *args: Any, **kwargs: Any) -> "AsyncElement": ...
+        def get_by_test_id(self, *args: Any, **kwargs: Any) -> "AsyncElement": ...
+        def get_by_text(self, *args: Any, **kwargs: Any) -> "AsyncElement": ...
+        def get_by_title(self, *args: Any, **kwargs: Any) -> "AsyncElement": ...
+        def describe(self, *args: Any, **kwargs: Any) -> "AsyncElement": ...
+        # normalize 在原生 AsyncLocator 上是协程，必须 await 后才有 Locator。
+        # 注意：这里用 asyncio.iscoroutinefunction 判不出来（TYPE_CHECKING 期不执行），
+        # 实际实现在 _make_async_child 里按 _ASYNC_AWAIT_CHILD 分支生成。
+        async def normalize(self, *args: Any, **kwargs: Any) -> "AsyncElement": ...
+        # frame_locator / visible / content_frame 有真实方法体，不在这里重复声明
+        def and_(self, *args: Any, **kwargs: Any) -> "AsyncElement": ...
+        def or_(self, *args: Any, **kwargs: Any) -> "AsyncElement": ...
+        def within(self, *args: Any, **kwargs: Any) -> "AsyncElement": ...
 
 
 def _make_async_action(name, label, has_value):
@@ -520,6 +609,7 @@ def _make_async_action(name, label, has_value):
 
 
 def _make_async_child(name):
+    """异步链式定位：普通方法（原生 AsyncLocator 上也是普通方法）"""
     def child(self, *args, **kwargs):
         args, kwargs = _unwrap_args(args, kwargs)
         method = getattr(self.native, name, None)
@@ -533,13 +623,254 @@ def _make_async_child(name):
     return child
 
 
+def _make_async_await_child(name):
+    """协程版链式定位（normalize）：先 await 原生方法，再包装结果"""
+    async def child(self, *args, **kwargs):
+        args, kwargs = _unwrap_args(args, kwargs)
+        method = getattr(self.native, name, None)
+        if method is None:
+            raise AttributeError(f"当前 Playwright 版本不支持 Locator.{name}()")
+        return self._derive(await method(*args, **kwargs))
+
+    child.__name__ = name
+    child.__qualname__ = f"AsyncElement.{name}"
+    child.__doc__ = "链式定位（原生为协程），返回包装后的 AsyncElement"
+    return child
+
+
 for _name, (_label, _has_value) in _ACTION_LABELS.items():
     setattr(Element, _name, _make_action(_name, _label, _has_value))
     setattr(AsyncElement, _name, _make_async_action(_name, _label, _has_value))
 
 for _name in _CHILD_METHODS:
     setattr(Element, _name, _make_child(_name))
-    setattr(AsyncElement, _name, _make_async_child(_name))
+    # normalize 在原生 AsyncLocator 上是协程，必须 await 后再包装；其余是普通方法
+    if _name in _ASYNC_AWAIT_CHILD:
+        setattr(AsyncElement, _name, _make_async_await_child(_name))
+    else:
+        setattr(AsyncElement, _name, _make_async_child(_name))
+
+# visible / describe / content_frame / frame_locator 只存在于其中一边或需要额外处理：
+# - visible / content_frame 是属性（见类体里的 @property）
+# - describe 两类都是普通方法，由上面的循环注入
+# - frame_locator 返回包装后的 FrameElement，见类体里的实现
+
+
+class FrameElement(_SyncFrameLocatorBase):
+    """iframe 包装：只有子定位能力（locator / get_by_*），没有 click 那套动作。
+
+    Playwright 的 FrameLocator 本就不提供 click / inner_text 等动作，直接包成 Element
+    会让这些调用以「当前 Playwright 版本不支持 Locator.click()」这种误导性文案报错。
+    子定位结果（Locator）仍然包成 Element，日志与 allure 步骤不丢。
+    """
+
+    def __init__(self, owner, selector=None, desc=None, attr=None, sensitive=None, frame=None):
+        self._owner = owner
+        self._selector = selector
+        self._desc = desc or attr or selector or ""
+        self._attr = attr
+        self._sensitive = sensitive
+        self._raw_frame = frame
+
+    @property
+    def native(self):
+        """原生 FrameLocator"""
+        if self._raw_frame is not None:
+            return self._raw_frame
+        return self._owner.page.frame_locator(self._selector)
+
+    @property
+    def selector(self):
+        return self._selector
+
+    @property
+    def desc(self):
+        return self._desc
+
+    @property
+    def first(self) -> "FrameElement":
+        """第一个匹配的 iframe"""
+        return self._derive_frame(self.native.first)
+
+    @property
+    def last(self) -> "FrameElement":
+        """最后一个匹配的 iframe"""
+        return self._derive_frame(self.native.last)
+
+    def _wrap_locator(self, locator, desc=None):
+        """子定位结果是 Locator，包成 Element（desc 带上子选择器，日志才认得出是哪个元素）"""
+        return Element(
+            self._owner,
+            selector=self._selector,
+            desc=desc or self._desc,
+            attr=self._attr,
+            sensitive=self._sensitive,
+            locator=locator,
+        )
+
+    def _derive_frame(self, frame):
+        """仍然是 FrameLocator（嵌套 iframe），保持 FrameElement"""
+        return FrameElement(
+            self._owner,
+            selector=self._selector,
+            desc=self._desc,
+            attr=self._attr,
+            sensitive=self._sensitive,
+            frame=frame,
+        )
+
+    def __repr__(self):
+        return f"<FrameElement {self._desc}({self._selector or 'derived'})>"
+
+    def __getattr__(self, name):
+        """未包装的成员直通原生 FrameLocator（on / once 等）"""
+        if name.startswith("_"):
+            raise AttributeError(name)
+        # 只把「原生对象确实没这个成员」翻译成 iframe 提示；
+        # native 自身求值失败是另一回事，原样抛出，别掩盖真实错误
+        native = object.__getattribute__(self, "native")
+        try:
+            return getattr(native, name)
+        except AttributeError:
+            raise AttributeError(_frame_action_hint(name, self._desc)) from None
+
+    if TYPE_CHECKING:  # pragma: no cover
+        # 子定位返回 Element（原生 FrameLocator.locator 返回 Locator），
+        # 声明在这里是为了让 frame.locator(...).click() 在 IDE 里有补全
+        def locator(self, *args: Any, **kwargs: Any) -> "Element": ...
+        def get_by_alt_text(self, *args: Any, **kwargs: Any) -> "Element": ...
+        def get_by_label(self, *args: Any, **kwargs: Any) -> "Element": ...
+        def get_by_placeholder(self, *args: Any, **kwargs: Any) -> "Element": ...
+        def get_by_role(self, *args: Any, **kwargs: Any) -> "Element": ...
+        def get_by_test_id(self, *args: Any, **kwargs: Any) -> "Element": ...
+        def get_by_text(self, *args: Any, **kwargs: Any) -> "Element": ...
+        def get_by_title(self, *args: Any, **kwargs: Any) -> "Element": ...
+        # 嵌套 iframe 仍返回 FrameElement
+        def nth(self, *args: Any, **kwargs: Any) -> "FrameElement": ...
+        def frame_locator(self, *args: Any, **kwargs: Any) -> "FrameElement": ...
+
+
+class AsyncFrameElement(_AsyncFrameLocatorBase):
+    """异步 iframe 包装：子定位返回 AsyncElement，日志与 allure 步骤行为同 FrameElement。"""
+
+    def __init__(self, owner, selector=None, desc=None, attr=None, sensitive=None, frame=None):
+        self._owner = owner
+        self._selector = selector
+        self._desc = desc or attr or selector or ""
+        self._attr = attr
+        self._sensitive = sensitive
+        self._raw_frame = frame
+
+    @property
+    def native(self):
+        """原生 AsyncFrameLocator"""
+        if self._raw_frame is not None:
+            return self._raw_frame
+        return self._owner.page.frame_locator(self._selector)
+
+    @property
+    def selector(self):
+        return self._selector
+
+    @property
+    def desc(self):
+        return self._desc
+
+    @property
+    def first(self) -> "AsyncFrameElement":
+        """第一个匹配的 iframe"""
+        return self._derive_frame(self.native.first)
+
+    @property
+    def last(self) -> "AsyncFrameElement":
+        """最后一个匹配的 iframe"""
+        return self._derive_frame(self.native.last)
+
+    def _wrap_locator(self, locator, desc=None):
+        """子定位结果是 AsyncLocator，包成 AsyncElement"""
+        return AsyncElement(
+            self._owner,
+            selector=self._selector,
+            desc=desc or self._desc,
+            attr=self._attr,
+            sensitive=self._sensitive,
+            locator=locator,
+        )
+
+    def _derive_frame(self, frame):
+        """仍然是 AsyncFrameLocator（嵌套 iframe），保持 AsyncFrameElement"""
+        return AsyncFrameElement(
+            self._owner,
+            selector=self._selector,
+            desc=self._desc,
+            attr=self._attr,
+            sensitive=self._sensitive,
+            frame=frame,
+        )
+
+    def __repr__(self):
+        return f"<AsyncFrameElement {self._desc}({self._selector or 'derived'})>"
+
+    def __getattr__(self, name):
+        """未包装的成员直通原生 AsyncFrameLocator"""
+        if name.startswith("_"):
+            raise AttributeError(name)
+        # 同 FrameElement：native 求值失败要原样抛出，不能翻译成 iframe 提示
+        native = object.__getattribute__(self, "native")
+        try:
+            return getattr(native, name)
+        except AttributeError:
+            raise AttributeError(_frame_action_hint(name, self._desc)) from None
+
+    if TYPE_CHECKING:  # pragma: no cover
+        # 与 FrameElement 同理；异步 FrameLocator 的子定位同样是普通方法（不是协程），
+        # 只有拿到的元素上的动作才需要 await
+        def locator(self, *args: Any, **kwargs: Any) -> "AsyncElement": ...
+        def get_by_alt_text(self, *args: Any, **kwargs: Any) -> "AsyncElement": ...
+        def get_by_label(self, *args: Any, **kwargs: Any) -> "AsyncElement": ...
+        def get_by_placeholder(self, *args: Any, **kwargs: Any) -> "AsyncElement": ...
+        def get_by_role(self, *args: Any, **kwargs: Any) -> "AsyncElement": ...
+        def get_by_test_id(self, *args: Any, **kwargs: Any) -> "AsyncElement": ...
+        def get_by_text(self, *args: Any, **kwargs: Any) -> "AsyncElement": ...
+        def get_by_title(self, *args: Any, **kwargs: Any) -> "AsyncElement": ...
+        def nth(self, *args: Any, **kwargs: Any) -> "AsyncFrameElement": ...
+        def frame_locator(self, *args: Any, **kwargs: Any) -> "AsyncFrameElement": ...
+
+
+def _make_frame_child(name):
+    def child(self, *args, **kwargs):
+        args, kwargs = _unwrap_args(args, kwargs)
+        method = getattr(self.native, name, None)
+        if method is None:
+            raise AttributeError(f"当前 Playwright 版本不支持 FrameLocator.{name}()")
+        return self._wrap_locator(method(*args, **kwargs))
+
+    child.__name__ = name
+    child.__qualname__ = f"FrameElement.{name}"
+    child.__doc__ = "iframe 内的子定位，返回包装后的 Element"
+    return child
+
+
+def _make_frame_frame(name):
+    def child(self, *args, **kwargs):
+        method = getattr(self.native, name, None)
+        if method is None:
+            raise AttributeError(f"当前 Playwright 版本不支持 FrameLocator.{name}()")
+        return self._derive_frame(method(*args, **kwargs))
+
+    child.__name__ = name
+    child.__qualname__ = f"FrameElement.{name}"
+    child.__doc__ = "嵌套 iframe 定位，返回包装后的 FrameElement"
+    return child
+
+
+for _name in _FRAME_LOCATOR_METHODS:
+    setattr(FrameElement, _name, _make_frame_child(_name))
+    setattr(AsyncFrameElement, _name, _make_frame_child(_name))
+
+for _name in _FRAME_FRAME_METHODS:
+    setattr(FrameElement, _name, _make_frame_frame(_name))
+    setattr(AsyncFrameElement, _name, _make_frame_frame(_name))
 
 
 class _ElementDescriptor:
