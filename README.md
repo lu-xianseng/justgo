@@ -252,8 +252,10 @@ def page(_pw_page, request):
 | `assert_url(page, expected)` / `assert_title(page, expected)` | 页面 URL / 标题（可直接传 PageExport） |
 | `assert_image("btn")` / `assert_not_image("tip")` | 屏幕找图（需 `just-go[image]`） |
 
-每个 UI 断言都有配套的反向断言 `assert_not_xxx`（如 `assert_not_text_contains` / `assert_not_attribute`），
-走 Playwright 的自动等待重试，不要自己取文本再比较。`assert_not_checked` 等旧名字保持不变。
+每个 UI 断言都在同一节里写着配套的反向断言 `assert_not_xxx`（如 `assert_not_text_contains` /
+`assert_not_attribute`），走 Playwright 的自动等待重试，不要自己取文本再比较；它们是
+`SyncAssert` / `AsyncAssert` 上的真实方法，IDE 里有补全、跳转和参数提示。日志风格与正向一致
+（`元素不可见: <Element 元件库选中角标(...)>`）。`assert_not_checked` 等旧名字保持不变。
 
 自定义断言：往 `Asserts` 里加 `assert_xxx` 方法即可；非 `assert_` 前缀用 `page.asserts.xxx(...)` 调用。
 

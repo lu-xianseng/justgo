@@ -5,7 +5,8 @@
 不用改动页面对象的继承链。
 
 - 内置断言来自 AssertCommon（数据断言）与 SyncAssert（UI 断言），继承即全部可用；
-  每个 UI 断言都有配套的 assert_not_xxx（如 assert_not_visible / assert_not_text_contains）；
+  每个 UI 断言都紧跟着配套的 assert_not_xxx（如 assert_not_visible / assert_not_text_contains），
+  是真实方法，IDE 可补全与跳转；
 - 自定义断言按 assert_xxx 命名写成本类方法，PageExport 会自动转发：
       page.assert_visible(page.login_page.login_btn)   # 内置 UI 断言
       page.assert_xxx(...)                             # 你新增的断言

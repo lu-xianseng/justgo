@@ -8,12 +8,13 @@
 - SyncAssert：同步用例用，数据断言 + UI 断言
 - AsyncAssert：异步用例用，数据断言 + UI 断言（UI 方法需 await）
 
-UI 断言写法：每个正向断言用 @negates("have_text") 标出等价的 Playwright 断言名，
-类装饰器 @with_negations 在导入时按同一份签名生成配套的 assert_not_xxx。
-新增能力要在 SyncAssert / AsyncAssert 各加一个正向断言——不要只补其中一边，
-tests/test_assertion.py 会校验两边方法集合一致、反向方法齐全。
+UI 断言写法：正向断言调用 Playwright 的 to_xxx，配套的 assert_not_xxx 紧写在它下面、
+调用 not_to_xxx——**必须是真实的方法定义**，不要改成运行时 setattr 动态生成：动态生成的
+属性 IDE / mypy 看不见，用 page.assert_not_visible() 时没有补全、跳转与参数提示。
+
+新增能力要在 SyncAssert / AsyncAssert 各加一对正向 + 反向断言——不要只补其中一边，
+tests/test_assertion.py 会校验两边方法集合一致、反向方法齐全、正反签名一致。
 """
-import inspect
 import re
 
 from playwright.async_api import expect as async_expect
@@ -192,132 +193,65 @@ class AssertCommon:
         return result
 
 
-# ---------------------------------------------------------------------------
-# 反向断言自动生成
-# ---------------------------------------------------------------------------
-# 每个正向断言用 @negates("have_text") 标出对应的 Playwright 断言名，
-# 类装饰器 @with_negations 据此生成配套的 assert_not_xxx
-# （assert_text -> assert_not_text，内部调用 not_to_have_text）。
-# 参数、timeout 与 ignore_case 之类的关键字按正向签名原样透传；同步/异步按方法
-# 本身是否 async def 自动决定要不要 await，两套断言类共用同一份生成逻辑。
-
-def negates(native):
-    """标记正向断言对应的 Playwright 断言名（不含 to_ 前缀）：negates("have_text")"""
-    def mark(func):
-        func.__negate_native__ = native
-        return func
-
-    return mark
-
-
-def _build_negation(func, native):
-    """按正向断言生成反向断言：入参与正向完全一致，内部调用 not_to_xxx。
-
-    参数先按正向签名完整绑定（支持位置传参与 locator= / page= 这类关键字传参），
-    再决定怎么交给原生断言：
-    - 第一个断言参数（expected / name / count / values）按位置传：
-      Playwright 的 not_to_have_url / not_to_have_title 形参名是 url_or_reg_exp /
-      title_or_reg_exp，用关键字会撞名；
-    - 其余参数名与 Playwright 一致，按关键字传（ignore_case / use_inner_text / value）；
-    - 未显式指定的参数（默认 None）不往下传，避免覆盖 Playwright 自己的默认行为。
-    """
-    not_native = "not_to_" + native
-    sig = inspect.signature(func)
-    params = list(sig.parameters)
-    target = params[1] if len(params) > 1 else "locator"
-    semantic = [p for p in params[2:] if p != "timeout"]  # 断言参数（含第一个 expected/name/count）
-    payload = semantic[0] if semantic else None
-    extra = semantic[1:]
-    convert = _to_page if target == "page" else _to_locator
-    neg_name = "assert_not_" + func.__name__[len("assert_"):]
-    doc = f"[反向] {inspect.getdoc(func) or func.__name__}（{not_native}）"
-
-    def prepare(self, args, kwargs):
-        bound = sig.bind(self, *args, **kwargs)
-        bound.apply_defaults()
-        values = bound.arguments
-        positional = ()
-        if payload is not None and values.get(payload) is not None:
-            positional = (values[payload],)
-        kw = {k: values[k] for k in extra if values.get(k) is not None}
-        if values.get("timeout") is not None:  # 显式 timeout 必须透传，None 时用 Playwright 默认
-            kw["timeout"] = values["timeout"]
-        return convert(values[target]), positional, kw
-
-    if inspect.iscoroutinefunction(func):
-        async def negation(self, *args, **kwargs):
-            obj, positional, kw = prepare(self, args, kwargs)
-            await getattr(async_expect(obj), not_native)(*positional, **kw)
-            logger.info(f"{neg_name} 成立: {obj} {positional or ''}".rstrip())
-
-    else:
-        def negation(self, *args, **kwargs):
-            obj, positional, kw = prepare(self, args, kwargs)
-            getattr(sync_expect(obj), not_native)(*positional, **kw)
-            logger.info(f"{neg_name} 成立: {obj} {positional or ''}".rstrip())
-
-    negation.__name__ = neg_name
-    negation.__qualname__ = f"{func.__qualname__.rsplit('.', 1)[0]}.{neg_name}"
-    negation.__doc__ = doc
-    negation.__wrapped__ = func
-    # 保留正向签名：IDE 补全、inspect.signature 与关键字调用（locator= / page=）都能对齐
-    negation.__signature__ = sig
-    return negation
-
-
-def with_negations(cls):
-    """类装饰器：给标了 @negates 的正向断言自动补上 assert_not_xxx"""
-    for name, func in list(vars(cls).items()):
-        native = getattr(func, "__negate_native__", None)
-        if not native or not name.startswith("assert_"):
-            continue
-        neg_name = "assert_not_" + name[len("assert_"):]
-        if neg_name not in vars(cls):
-            setattr(cls, neg_name, _build_negation(func, native))
-    return cls
-
-
-@with_negations
 class SyncAssert(AssertCommon):
     """同步断言：纯数据断言 + playwright UI 断言。配合 def test_xxx(page) 使用。
 
-    每个 assert_xxx 都有配套的 assert_not_xxx（由 @negates 自动生成），
+    每个 assert_xxx 都在下一行写着配套的 assert_not_xxx（显式方法，IDE 可补全/跳转），
     反向断言同样走 Playwright 的自动等待重试，不必自己取文本再比较。
     """
 
     # ---- 可见性 / 存在 ----
-    @negates("be_visible")
     def assert_visible(self, locator, timeout=None):
         """断言元素可见"""
         sync_expect(_to_locator(locator)).to_be_visible(timeout=timeout)
         logger.info(f"元素可见: {locator}")
 
-    @negates("be_hidden")
+    def assert_not_visible(self, locator, timeout=None):
+        """断言元素不可见（存在但不可见，或不存在）；断言元素可从 DOM 上彻底消失用 assert_not_attached"""
+        sync_expect(_to_locator(locator)).not_to_be_visible(timeout=timeout)
+        logger.info(f"元素不可见: {locator}")
+
     def assert_hidden(self, locator, timeout=None):
         """断言元素隐藏（不存在或不可见）；只想断言「存在但不可见」用 assert_not_visible"""
         sync_expect(_to_locator(locator)).to_be_hidden(timeout=timeout)
         logger.info(f"元素隐藏: {locator}")
 
-    @negates("be_attached")
+    def assert_not_hidden(self, locator, timeout=None):
+        """断言元素未隐藏（存在且可见）"""
+        sync_expect(_to_locator(locator)).not_to_be_hidden(timeout=timeout)
+        logger.info(f"元素未隐藏: {locator}")
+
     def assert_attached(self, locator, timeout=None):
         """断言元素已挂载到 DOM（不要求可见）"""
         sync_expect(_to_locator(locator)).to_be_attached(timeout=timeout)
         logger.info(f"元素已挂载: {locator}")
 
-    @negates("be_empty")
+    def assert_not_attached(self, locator, timeout=None):
+        """断言元素未挂载到 DOM（从 DOM 上移除）"""
+        sync_expect(_to_locator(locator)).not_to_be_attached(timeout=timeout)
+        logger.info(f"元素未挂载: {locator}")
+
     def assert_empty(self, locator, timeout=None):
         """断言元素内没有子节点/文本（空列表、空表格）"""
         sync_expect(_to_locator(locator)).to_be_empty(timeout=timeout)
         logger.info(f"元素为空: {locator}")
 
-    @negates("have_count")
+    def assert_not_empty(self, locator, timeout=None):
+        """断言元素内有子节点/文本（列表、表格非空）"""
+        sync_expect(_to_locator(locator)).not_to_be_empty(timeout=timeout)
+        logger.info(f"元素不为空: {locator}")
+
     def assert_count(self, locator, count, timeout=None):
         """断言匹配的元素数量等于 count"""
         sync_expect(_to_locator(locator)).to_have_count(count, timeout=timeout)
         logger.info(f"元素数量等于 {count}: {locator}")
 
+    def assert_not_count(self, locator, count, timeout=None):
+        """断言匹配的元素数量不等于 count"""
+        sync_expect(_to_locator(locator)).not_to_have_count(count, timeout=timeout)
+        logger.info(f"元素数量不等于 {count}: {locator}")
+
     # ---- 文本 / 值 ----
-    @negates("have_text")
     def assert_text(self, locator, expected, timeout=None, ignore_case=None, use_inner_text=None):
         """断言元素文本等于 expected（支持正则与列表，与 Playwright 一致）"""
         sync_expect(_to_locator(locator)).to_have_text(
@@ -325,7 +259,15 @@ class SyncAssert(AssertCommon):
         )
         logger.info(f"元素文本等于 '{expected}': {locator}")
 
-    @negates("contain_text")
+    def assert_not_text(
+        self, locator, expected, timeout=None, ignore_case=None, use_inner_text=None
+    ):
+        """断言元素文本不等于 expected（支持正则与列表）"""
+        sync_expect(_to_locator(locator)).not_to_have_text(
+            expected, timeout=timeout, ignore_case=ignore_case, use_inner_text=use_inner_text
+        )
+        logger.info(f"元素文本不等于 '{expected}': {locator}")
+
     def assert_text_contains(
         self, locator, expected, timeout=None, ignore_case=None, use_inner_text=None
     ):
@@ -335,128 +277,209 @@ class SyncAssert(AssertCommon):
         )
         logger.info(f"元素文本包含 '{expected}': {locator}")
 
-    @negates("have_value")
+    def assert_not_text_contains(
+        self, locator, expected, timeout=None, ignore_case=None, use_inner_text=None
+    ):
+        """断言元素文本不包含 expected（expected 可为子串、正则或它们的列表）"""
+        sync_expect(_to_locator(locator)).not_to_contain_text(
+            expected, timeout=timeout, ignore_case=ignore_case, use_inner_text=use_inner_text
+        )
+        logger.info(f"元素文本不包含 '{expected}': {locator}")
+
     def assert_value(self, locator, expected, timeout=None):
         """断言输入框值等于 expected"""
         sync_expect(_to_locator(locator)).to_have_value(expected, timeout=timeout)
         logger.info(f"输入框值等于 '{expected}': {locator}")
 
-    @negates("have_values")
+    def assert_not_value(self, locator, expected, timeout=None):
+        """断言输入框值不等于 expected"""
+        sync_expect(_to_locator(locator)).not_to_have_value(expected, timeout=timeout)
+        logger.info(f"输入框值不等于 '{expected}': {locator}")
+
     def assert_values(self, locator, expected, timeout=None):
         """断言多选控件（如 multiple select）的选中值等于 expected 列表"""
         sync_expect(_to_locator(locator)).to_have_values(expected, timeout=timeout)
         logger.info(f"多选值等于 {expected}: {locator}")
 
+    def assert_not_values(self, locator, expected, timeout=None):
+        """断言多选控件（如 multiple select）的选中值不等于 expected 列表"""
+        sync_expect(_to_locator(locator)).not_to_have_values(expected, timeout=timeout)
+        logger.info(f"多选值不等于 {expected}: {locator}")
+
     # ---- 状态 ----
-    @negates("be_checked")
     def assert_checked(self, locator, timeout=None):
         """断言复选框/单选框已选中"""
         sync_expect(_to_locator(locator)).to_be_checked(timeout=timeout)
         logger.info(f"元素已选中: {locator}")
 
-    @negates("be_enabled")
+    def assert_not_checked(self, locator, timeout=None):
+        """断言复选框/单选框未选中"""
+        sync_expect(_to_locator(locator)).not_to_be_checked(timeout=timeout)
+        logger.info(f"元素未选中: {locator}")
+
     def assert_enabled(self, locator, timeout=None):
         """断言元素可用"""
         sync_expect(_to_locator(locator)).to_be_enabled(timeout=timeout)
         logger.info(f"元素可用: {locator}")
 
-    @negates("be_disabled")
+    def assert_not_enabled(self, locator, timeout=None):
+        """断言元素不可用（disabled）"""
+        sync_expect(_to_locator(locator)).not_to_be_enabled(timeout=timeout)
+        logger.info(f"元素不可用: {locator}")
+
     def assert_disabled(self, locator, timeout=None):
         """断言元素禁用"""
         sync_expect(_to_locator(locator)).to_be_disabled(timeout=timeout)
         logger.info(f"元素禁用: {locator}")
 
-    @negates("be_editable")
+    def assert_not_disabled(self, locator, timeout=None):
+        """断言元素未禁用（可用）"""
+        sync_expect(_to_locator(locator)).not_to_be_disabled(timeout=timeout)
+        logger.info(f"元素未禁用: {locator}")
+
     def assert_editable(self, locator, timeout=None):
         """断言元素可编辑（readonly / disabled 时为 False）"""
         sync_expect(_to_locator(locator)).to_be_editable(timeout=timeout)
         logger.info(f"元素可编辑: {locator}")
 
-    @negates("be_focused")
+    def assert_not_editable(self, locator, timeout=None):
+        """断言元素不可编辑（readonly / disabled）"""
+        sync_expect(_to_locator(locator)).not_to_be_editable(timeout=timeout)
+        logger.info(f"元素不可编辑: {locator}")
+
     def assert_focused(self, locator, timeout=None):
         """断言元素已获得焦点"""
         sync_expect(_to_locator(locator)).to_be_focused(timeout=timeout)
         logger.info(f"元素获得焦点: {locator}")
 
+    def assert_not_focused(self, locator, timeout=None):
+        """断言元素未获得焦点"""
+        sync_expect(_to_locator(locator)).not_to_be_focused(timeout=timeout)
+        logger.info(f"元素未获得焦点: {locator}")
+
     # ---- 属性 / 标识 ----
-    @negates("have_attribute")
     def assert_attribute(self, locator, name, value=None, timeout=None):
         """断言元素属性 name 等于 value；value 省略时只断言属性存在"""
         sync_expect(_to_locator(locator)).to_have_attribute(name, value, timeout=timeout)
         logger.info(f"元素属性 {name}={value}: {locator}")
 
-    @negates("have_id")
+    def assert_not_attribute(self, locator, name, value=None, timeout=None):
+        """断言元素属性 name 不等于 value；value 省略时断言属性不存在"""
+        sync_expect(_to_locator(locator)).not_to_have_attribute(name, value, timeout=timeout)
+        logger.info(f"元素属性 {name} 不等于 {value}: {locator}")
+
     def assert_id(self, locator, expected, timeout=None):
         """断言元素 id 等于 expected"""
         sync_expect(_to_locator(locator)).to_have_id(expected, timeout=timeout)
         logger.info(f"元素 id 等于 '{expected}': {locator}")
 
-    @negates("have_class")
+    def assert_not_id(self, locator, expected, timeout=None):
+        """断言元素 id 不等于 expected"""
+        sync_expect(_to_locator(locator)).not_to_have_id(expected, timeout=timeout)
+        logger.info(f"元素 id 不等于 '{expected}': {locator}")
+
     def assert_class(self, locator, expected, timeout=None):
         """断言元素 class 属性与 expected 完全一致（顺序无关）；只关心部分 class 用 assert_class_contains"""
         sync_expect(_to_locator(locator)).to_have_class(expected, timeout=timeout)
         logger.info(f"元素 class 完全匹配 '{expected}': {locator}")
 
-    @negates("contain_class")
+    def assert_not_class(self, locator, expected, timeout=None):
+        """断言元素 class 属性与 expected 不完全一致（顺序无关）"""
+        sync_expect(_to_locator(locator)).not_to_have_class(expected, timeout=timeout)
+        logger.info(f"元素 class 不匹配 '{expected}': {locator}")
+
     def assert_class_contains(self, locator, expected, timeout=None):
         """断言元素 class 包含 expected 里的全部类名（expected 可为空格分隔字符串或列表）"""
         sync_expect(_to_locator(locator)).to_contain_class(expected, timeout=timeout)
         logger.info(f"元素 class 包含 '{expected}': {locator}")
 
+    def assert_not_class_contains(self, locator, expected, timeout=None):
+        """断言元素 class 不包含 expected 里的全部类名"""
+        sync_expect(_to_locator(locator)).not_to_contain_class(expected, timeout=timeout)
+        logger.info(f"元素 class 不包含 '{expected}': {locator}")
+
     # ---- 页面 ----
-    @negates("have_url")
     def assert_url(self, page, expected, timeout=None, ignore_case=None):
         """断言页面 URL（支持正则）；page 可直接传 PageExport"""
         sync_expect(_to_page(page)).to_have_url(expected, timeout=timeout, ignore_case=ignore_case)
         logger.info(f"页面 URL 匹配: {expected}")
 
-    @negates("have_title")
+    def assert_not_url(self, page, expected, timeout=None, ignore_case=None):
+        """断言页面 URL 不匹配（支持正则）；page 可直接传 PageExport"""
+        sync_expect(_to_page(page)).not_to_have_url(
+            expected, timeout=timeout, ignore_case=ignore_case
+        )
+        logger.info(f"页面 URL 不匹配: {expected}")
+
     def assert_title(self, page, expected, timeout=None):
         """断言页面标题（支持正则）；page 可直接传 PageExport"""
         sync_expect(_to_page(page)).to_have_title(expected, timeout=timeout)
         logger.info(f"页面标题匹配: {expected}")
 
+    def assert_not_title(self, page, expected, timeout=None):
+        """断言页面标题不匹配（支持正则）；page 可直接传 PageExport"""
+        sync_expect(_to_page(page)).not_to_have_title(expected, timeout=timeout)
+        logger.info(f"页面标题不匹配: {expected}")
 
-@with_negations
+
 class AsyncAssert(AssertCommon):
     """异步断言：纯数据断言 + UI 断言（UI 方法需 await）。配合 async def test_xxx(page) 使用。
 
-    方法集合与 SyncAssert 完全一致，反向断言同样由 @negates 自动生成。
+    方法集合与 SyncAssert 完全一致，反向断言同样写在正向断言下面。
     """
 
     # ---- 可见性 / 存在 ----
-    @negates("be_visible")
     async def assert_visible(self, locator, timeout=None):
         """断言元素可见"""
         await async_expect(_to_locator(locator)).to_be_visible(timeout=timeout)
         logger.info(f"元素可见: {locator}")
 
-    @negates("be_hidden")
+    async def assert_not_visible(self, locator, timeout=None):
+        """断言元素不可见（存在但不可见，或不存在）；断言元素可从 DOM 上彻底消失用 assert_not_attached"""
+        await async_expect(_to_locator(locator)).not_to_be_visible(timeout=timeout)
+        logger.info(f"元素不可见: {locator}")
+
     async def assert_hidden(self, locator, timeout=None):
         """断言元素隐藏（不存在或不可见）；只想断言「存在但不可见」用 assert_not_visible"""
         await async_expect(_to_locator(locator)).to_be_hidden(timeout=timeout)
         logger.info(f"元素隐藏: {locator}")
 
-    @negates("be_attached")
+    async def assert_not_hidden(self, locator, timeout=None):
+        """断言元素未隐藏（存在且可见）"""
+        await async_expect(_to_locator(locator)).not_to_be_hidden(timeout=timeout)
+        logger.info(f"元素未隐藏: {locator}")
+
     async def assert_attached(self, locator, timeout=None):
         """断言元素已挂载到 DOM（不要求可见）"""
         await async_expect(_to_locator(locator)).to_be_attached(timeout=timeout)
         logger.info(f"元素已挂载: {locator}")
 
-    @negates("be_empty")
+    async def assert_not_attached(self, locator, timeout=None):
+        """断言元素未挂载到 DOM（从 DOM 上移除）"""
+        await async_expect(_to_locator(locator)).not_to_be_attached(timeout=timeout)
+        logger.info(f"元素未挂载: {locator}")
+
     async def assert_empty(self, locator, timeout=None):
         """断言元素内没有子节点/文本（空列表、空表格）"""
         await async_expect(_to_locator(locator)).to_be_empty(timeout=timeout)
         logger.info(f"元素为空: {locator}")
 
-    @negates("have_count")
+    async def assert_not_empty(self, locator, timeout=None):
+        """断言元素内有子节点/文本（列表、表格非空）"""
+        await async_expect(_to_locator(locator)).not_to_be_empty(timeout=timeout)
+        logger.info(f"元素不为空: {locator}")
+
     async def assert_count(self, locator, count, timeout=None):
         """断言匹配的元素数量等于 count"""
         await async_expect(_to_locator(locator)).to_have_count(count, timeout=timeout)
         logger.info(f"元素数量等于 {count}: {locator}")
 
+    async def assert_not_count(self, locator, count, timeout=None):
+        """断言匹配的元素数量不等于 count"""
+        await async_expect(_to_locator(locator)).not_to_have_count(count, timeout=timeout)
+        logger.info(f"元素数量不等于 {count}: {locator}")
+
     # ---- 文本 / 值 ----
-    @negates("have_text")
     async def assert_text(
         self, locator, expected, timeout=None, ignore_case=None, use_inner_text=None
     ):
@@ -466,7 +489,15 @@ class AsyncAssert(AssertCommon):
         )
         logger.info(f"元素文本等于 '{expected}': {locator}")
 
-    @negates("contain_text")
+    async def assert_not_text(
+        self, locator, expected, timeout=None, ignore_case=None, use_inner_text=None
+    ):
+        """断言元素文本不等于 expected（支持正则与列表）"""
+        await async_expect(_to_locator(locator)).not_to_have_text(
+            expected, timeout=timeout, ignore_case=ignore_case, use_inner_text=use_inner_text
+        )
+        logger.info(f"元素文本不等于 '{expected}': {locator}")
+
     async def assert_text_contains(
         self, locator, expected, timeout=None, ignore_case=None, use_inner_text=None
     ):
@@ -476,76 +507,130 @@ class AsyncAssert(AssertCommon):
         )
         logger.info(f"元素文本包含 '{expected}': {locator}")
 
-    @negates("have_value")
+    async def assert_not_text_contains(
+        self, locator, expected, timeout=None, ignore_case=None, use_inner_text=None
+    ):
+        """断言元素文本不包含 expected（expected 可为子串、正则或它们的列表）"""
+        await async_expect(_to_locator(locator)).not_to_contain_text(
+            expected, timeout=timeout, ignore_case=ignore_case, use_inner_text=use_inner_text
+        )
+        logger.info(f"元素文本不包含 '{expected}': {locator}")
+
     async def assert_value(self, locator, expected, timeout=None):
         """断言输入框值等于 expected"""
         await async_expect(_to_locator(locator)).to_have_value(expected, timeout=timeout)
         logger.info(f"输入框值等于 '{expected}': {locator}")
 
-    @negates("have_values")
+    async def assert_not_value(self, locator, expected, timeout=None):
+        """断言输入框值不等于 expected"""
+        await async_expect(_to_locator(locator)).not_to_have_value(expected, timeout=timeout)
+        logger.info(f"输入框值不等于 '{expected}': {locator}")
+
     async def assert_values(self, locator, expected, timeout=None):
         """断言多选控件（如 multiple select）的选中值等于 expected 列表"""
         await async_expect(_to_locator(locator)).to_have_values(expected, timeout=timeout)
         logger.info(f"多选值等于 {expected}: {locator}")
 
+    async def assert_not_values(self, locator, expected, timeout=None):
+        """断言多选控件（如 multiple select）的选中值不等于 expected 列表"""
+        await async_expect(_to_locator(locator)).not_to_have_values(expected, timeout=timeout)
+        logger.info(f"多选值不等于 {expected}: {locator}")
+
     # ---- 状态 ----
-    @negates("be_checked")
     async def assert_checked(self, locator, timeout=None):
         """断言复选框/单选框已选中"""
         await async_expect(_to_locator(locator)).to_be_checked(timeout=timeout)
         logger.info(f"元素已选中: {locator}")
 
-    @negates("be_enabled")
+    async def assert_not_checked(self, locator, timeout=None):
+        """断言复选框/单选框未选中"""
+        await async_expect(_to_locator(locator)).not_to_be_checked(timeout=timeout)
+        logger.info(f"元素未选中: {locator}")
+
     async def assert_enabled(self, locator, timeout=None):
         """断言元素可用"""
         await async_expect(_to_locator(locator)).to_be_enabled(timeout=timeout)
         logger.info(f"元素可用: {locator}")
 
-    @negates("be_disabled")
+    async def assert_not_enabled(self, locator, timeout=None):
+        """断言元素不可用（disabled）"""
+        await async_expect(_to_locator(locator)).not_to_be_enabled(timeout=timeout)
+        logger.info(f"元素不可用: {locator}")
+
     async def assert_disabled(self, locator, timeout=None):
         """断言元素禁用"""
         await async_expect(_to_locator(locator)).to_be_disabled(timeout=timeout)
         logger.info(f"元素禁用: {locator}")
 
-    @negates("be_editable")
+    async def assert_not_disabled(self, locator, timeout=None):
+        """断言元素未禁用（可用）"""
+        await async_expect(_to_locator(locator)).not_to_be_disabled(timeout=timeout)
+        logger.info(f"元素未禁用: {locator}")
+
     async def assert_editable(self, locator, timeout=None):
         """断言元素可编辑（readonly / disabled 时为 False）"""
         await async_expect(_to_locator(locator)).to_be_editable(timeout=timeout)
         logger.info(f"元素可编辑: {locator}")
 
-    @negates("be_focused")
+    async def assert_not_editable(self, locator, timeout=None):
+        """断言元素不可编辑（readonly / disabled）"""
+        await async_expect(_to_locator(locator)).not_to_be_editable(timeout=timeout)
+        logger.info(f"元素不可编辑: {locator}")
+
     async def assert_focused(self, locator, timeout=None):
         """断言元素已获得焦点"""
         await async_expect(_to_locator(locator)).to_be_focused(timeout=timeout)
         logger.info(f"元素获得焦点: {locator}")
 
+    async def assert_not_focused(self, locator, timeout=None):
+        """断言元素未获得焦点"""
+        await async_expect(_to_locator(locator)).not_to_be_focused(timeout=timeout)
+        logger.info(f"元素未获得焦点: {locator}")
+
     # ---- 属性 / 标识 ----
-    @negates("have_attribute")
     async def assert_attribute(self, locator, name, value=None, timeout=None):
         """断言元素属性 name 等于 value；value 省略时只断言属性存在"""
         await async_expect(_to_locator(locator)).to_have_attribute(name, value, timeout=timeout)
         logger.info(f"元素属性 {name}={value}: {locator}")
 
-    @negates("have_id")
+    async def assert_not_attribute(self, locator, name, value=None, timeout=None):
+        """断言元素属性 name 不等于 value；value 省略时断言属性不存在"""
+        await async_expect(_to_locator(locator)).not_to_have_attribute(
+            name, value, timeout=timeout
+        )
+        logger.info(f"元素属性 {name} 不等于 {value}: {locator}")
+
     async def assert_id(self, locator, expected, timeout=None):
         """断言元素 id 等于 expected"""
         await async_expect(_to_locator(locator)).to_have_id(expected, timeout=timeout)
         logger.info(f"元素 id 等于 '{expected}': {locator}")
 
-    @negates("have_class")
+    async def assert_not_id(self, locator, expected, timeout=None):
+        """断言元素 id 不等于 expected"""
+        await async_expect(_to_locator(locator)).not_to_have_id(expected, timeout=timeout)
+        logger.info(f"元素 id 不等于 '{expected}': {locator}")
+
     async def assert_class(self, locator, expected, timeout=None):
         """断言元素 class 属性与 expected 完全一致（顺序无关）；只关心部分 class 用 assert_class_contains"""
         await async_expect(_to_locator(locator)).to_have_class(expected, timeout=timeout)
         logger.info(f"元素 class 完全匹配 '{expected}': {locator}")
 
-    @negates("contain_class")
+    async def assert_not_class(self, locator, expected, timeout=None):
+        """断言元素 class 属性与 expected 不完全一致（顺序无关）"""
+        await async_expect(_to_locator(locator)).not_to_have_class(expected, timeout=timeout)
+        logger.info(f"元素 class 不匹配 '{expected}': {locator}")
+
     async def assert_class_contains(self, locator, expected, timeout=None):
         """断言元素 class 包含 expected 里的全部类名（expected 可为空格分隔字符串或列表）"""
         await async_expect(_to_locator(locator)).to_contain_class(expected, timeout=timeout)
         logger.info(f"元素 class 包含 '{expected}': {locator}")
 
+    async def assert_not_class_contains(self, locator, expected, timeout=None):
+        """断言元素 class 不包含 expected 里的全部类名"""
+        await async_expect(_to_locator(locator)).not_to_contain_class(expected, timeout=timeout)
+        logger.info(f"元素 class 不包含 '{expected}': {locator}")
+
     # ---- 页面 ----
-    @negates("have_url")
     async def assert_url(self, page, expected, timeout=None, ignore_case=None):
         """断言页面 URL（支持正则）；page 可直接传 PageExport"""
         await async_expect(_to_page(page)).to_have_url(
@@ -553,8 +638,19 @@ class AsyncAssert(AssertCommon):
         )
         logger.info(f"页面 URL 匹配: {expected}")
 
-    @negates("have_title")
+    async def assert_not_url(self, page, expected, timeout=None, ignore_case=None):
+        """断言页面 URL 不匹配（支持正则）；page 可直接传 PageExport"""
+        await async_expect(_to_page(page)).not_to_have_url(
+            expected, timeout=timeout, ignore_case=ignore_case
+        )
+        logger.info(f"页面 URL 不匹配: {expected}")
+
     async def assert_title(self, page, expected, timeout=None):
         """断言页面标题（支持正则）；page 可直接传 PageExport"""
         await async_expect(_to_page(page)).to_have_title(expected, timeout=timeout)
         logger.info(f"页面标题匹配: {expected}")
+
+    async def assert_not_title(self, page, expected, timeout=None):
+        """断言页面标题不匹配（支持正则）；page 可直接传 PageExport"""
+        await async_expect(_to_page(page)).not_to_have_title(expected, timeout=timeout)
+        logger.info(f"页面标题不匹配: {expected}")

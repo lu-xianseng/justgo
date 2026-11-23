@@ -3,6 +3,20 @@
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 版本号递增规则：修复 `x.y.patch+1`，新功能 `x.minor+1`，不兼容变更 `major+1`。
 
+## [0.3.6] - 2026-11-20
+
+### 修复
+- **反向断言在 IDE 里无法关联**：`assert_not_xxx` 此前由 `@with_negations` 在导入时 `setattr` 动态生成，PyCharm / mypy 只静态解析源码，因此 `page.assert_not_visible(...)` 没有补全、没有跳转、参数提示也缺失（`__signature__` 只对运行时 `inspect` 生效）。现在 `SyncAssert` / `AsyncAssert` 里的 20 个反向断言全部改写成正向断言下方的**真实方法定义**，IDE 可直接补全/跳转
+- **反向断言的日志风格与正向不一致**：此前打印 `assert_not_visible 成立: <Locator frame=... selector=...>`（英文方法名 + 转换后的原生 `Locator`）。现在与正向对齐，打印 `元素不可见: <Element 元件库选中角标(...)>` —— 中文动作 + 用户传进来的对象原样输出，`Element` 描述、敏感词脱敏照常生效
+
+### 变更
+- 删除 `@with_negations` 类装饰器与 `_build_negation` / `prepare` 参数搬运逻辑：显式方法直接用普通 Python 调用 Playwright 的 `not_to_*`，不再经过「按签名绑定 → 挑参数 → 按位置/关键字分流」这一层，少一处出错点
+- 删除 `@negates` 元数据标记：它此前只用于测试校验原生方法名，测试改为直接从正反方法体里解析 `to_xxx` / `not_to_xxx` 并交叉比对，同一份源码只留一处事实来源
+- 反向断言新增一对 `assert_not_attached`，并与正向一一对应；`assert_not_image` 保持不变（数据断言，本来就在 `AssertCommon` 里手写）
+
+### 测试
+- `tests/test_assertion.py` 重写反向断言校验，改为不依赖硬编码方法名清单：从两个断言类里自动收集 `assert_` / `assert_not_` 方法，校验 ①正反成对出现 ②正反签名完全一致 ③**反向断言体里调用的 `not_to_xxx` 与正向体里的 `to_xxx` 同名、且没误用正向方法**（静态解析方法体，防止复制粘贴写错）④方法能取到自己的 `def` 源码行（`inspect.getsource` 首行必须是 `def assert_not_xxx`，动态生成的方法在此失败，即 IDE 跳转能力回归测试）⑤这些 `to_xxx` / `not_to_xxx` 在当前 Playwright 版本上真实存在 ⑥日志文案与正向同风格、传 `Element` 时打印其 `repr` 而非原生 `Locator`
+
 ## [0.3.5] - 2026-11-19
 
 ### 变更
